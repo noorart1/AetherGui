@@ -7,33 +7,48 @@ using System.Text;
 
 namespace AetherGui;
 
-record Preset(string Name, string Args);
+record Preset(string Name, string Args, int StartupSecs = Aether.FastSecs, string HttpFlag = "--http-proxy")
+{
+    public bool ManualOnly => StartupSecs > Aether.FastSecs; // too slow to wait for in the Auto rotation
+    public string Label => ManualOnly ? Name + " (manual)" : Name;
+}
 
 // Everything about aether.exe itself: where it lives, downloading it, starting it, and testing its tunnel.
 static class Aether
 {
     private const string TestUrl = "http://www.gstatic.com/generate_204";
-    private const int StartupMs = 30_000;        // aether scans/validates first, and opens its proxy only once the tunnel works
     private const int ConnectTimeoutMs = 10_000; // after the proxy is up, the internet test must pass within this
     public const int HttpPort = 1819;            // HTTP proxy, set as the system proxy
     private const int SocksPort = 1818;          // SOCKS5, used for the delay test (free for manual use too)
     private static readonly string Dir = AppContext.BaseDirectory; // aether.exe lives beside this exe
     private static readonly string Exe = Path.Combine(Dir, "aether.exe");
 
+    private const string Warp = " --turbo -4 --quick-reconnect";
+    public const int FastSecs = 30; // startup budget of the fast protocols, the only ones Auto rotates through
+
+    // The protocol menu aether itself offers. Tor/Psiphon bootstrap slowly (tor tries 75s plainly, then bridges;
+    // psiphon waits up to 180s), so they get longer startup budgets and run only when picked by hand.
+    // The "alone" modes don't serve --http-proxy, so they expose their own HTTP proxy flag on the same port.
     public static readonly Preset[] Presets =
     {
-        new("WireGuard", "--wg --turbo -4 --quick-reconnect"),
-        new("WireGuard (gfw noize)", "--wg --turbo --noize gfw -4 --quick-reconnect"),
-        new("Gool", "--gool --turbo -4 --quick-reconnect"),
-        new("Masque", "--masque --turbo -4 --quick-reconnect"),
-        new("Masque (HTTP/2)", "--masque --h2 --turbo -4 --quick-reconnect"),
+        new("MASQUE", "--masque" + Warp),
+        new("WireGuard", "--wg" + Warp),
+        new("WARP-in-WARP (gool)", "--gool" + Warp),
+        new("MASQUE-in-MASQUE", "--mim" + Warp),
+        new("Tor alone", "--tor-only", 300, "--tor-http"),
+        new("Tor + WARP", "--tor-reverse" + Warp, 300),         // warp reached via tor, exit via warp
+        new("Psiphon alone", "--psiphon-only", 240, "--psiphon-http"),
+        new("Psiphon + WARP", "--psiphon-reverse" + Warp, 240), // warp reached via psiphon, exit via warp
     };
+
+    public static readonly Preset[] AutoPresets = Presets.Where(p => !p.ManualOnly).ToArray();
 
     // A real request through aether's SOCKS5 proxy measures the real delay.
     private static readonly HttpClient Http = new(new SocketsHttpHandler { Proxy = new WebProxy($"socks5://127.0.0.1:{SocksPort}") })
     { Timeout = TimeSpan.FromSeconds(3) };
 
     // If aether.exe is missing, download the latest Windows release from GitHub and verify its SHA-256.
+    // The whole archive is kept: pt/ holds the tor bridge transports and psiphon, which aether looks for beside itself.
     public static async Task<bool> EnsureInstalledAsync(Action<string> log, CancellationToken ct)
     {
         if (File.Exists(Exe)) return true;
@@ -57,8 +72,8 @@ static class Aether
                     throw new Exception("SHA-256 mismatch, download discarded");
             }
             using var archive = new ZipArchive(new MemoryStream(zip));
-            var entry = archive.Entries.FirstOrDefault(e => e.Name == "aether.exe") ?? throw new Exception("aether.exe not in the archive");
-            entry.ExtractToFile(Exe, true);
+            if (archive.GetEntry("aether.exe") is null) throw new Exception("aether.exe not in the archive");
+            archive.ExtractToDirectory(Dir, true);
             log($"Downloaded {release.RootElement.GetProperty("tag_name").GetString()}.");
             return true;
         }
@@ -79,7 +94,7 @@ static class Aether
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = Exe,
-                    Arguments = p.Args + $" --bind 127.0.0.1:{SocksPort} --http-proxy 127.0.0.1:{HttpPort}",
+                    Arguments = p.Args + $" --bind 127.0.0.1:{SocksPort} {p.HttpFlag} 127.0.0.1:{HttpPort}",
                     WorkingDirectory = Dir,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -100,20 +115,18 @@ static class Aether
         catch (Exception ex) { log($"Start failed: {ex.Message}"); return null; }
     }
 
-    // Waits for aether's proxy (up to StartupMs), then for a passing internet test (up to ConnectTimeoutMs).
-    public static async Task<int?> WaitConnectedAsync(Process proc, CancellationToken ct)
+    // Waits for a passing internet test through aether's proxy. Gives up once the startup budget is spent
+    // and the proxy has been up for ConnectTimeoutMs without passing (tor opens its port long before it can carry traffic).
+    public static async Task<int?> WaitConnectedAsync(Process proc, int startupSecs, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
         long? upAt = null;
         while (!proc.HasExited)
         {
             if (upAt is null && await PortOpenAsync(ct)) upAt = sw.ElapsedMilliseconds;
-            if (upAt is not null)
-            {
-                if (await PingAsync(ct) is int ms) return ms;
-                if (sw.ElapsedMilliseconds - upAt > ConnectTimeoutMs) return null;
-            }
-            else if (sw.ElapsedMilliseconds > StartupMs) return null;
+            if (upAt is not null && await PingAsync(ct) is int ms) return ms;
+            var t = sw.ElapsedMilliseconds;
+            if (t > startupSecs * 1000 && (upAt is null || t - upAt > ConnectTimeoutMs)) return null;
             await Task.Delay(500, ct);
         }
         return null;

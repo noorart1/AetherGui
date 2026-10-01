@@ -2,3 +2,7 @@ bin/
 obj/
 *.toml
 *.exe
+publish/
+aether-tor/
+.claude/
+flutter/android/build/

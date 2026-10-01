@@ -14,11 +14,15 @@ public partial class Form1 : Form
     public Form1()
     {
         InitializeComponent();
+        cboProtocol.Items.Add("Auto (fast protocols)");
+        cboProtocol.Items.AddRange(Aether.Presets.Select(p => (object)p.Label).ToArray());
         using (var key = Registry.CurrentUser.OpenSubKey(SettingsKey))
         {
             chkStartup.Checked = key?.GetValue("AutoConnect") is 1;
             chkSysProxy.Checked = key?.GetValue("SetSystemProxy") is 1;
+            cboProtocol.SelectedIndex = key?.GetValue("Protocol") is int i && i >= 0 && i < cboProtocol.Items.Count ? i : 0;
         }
+        cboProtocol.SelectedIndexChanged += (_, _) => SaveSetting("Protocol", cboProtocol.SelectedIndex);
         chkStartup.CheckedChanged += (_, _) => SaveSetting("AutoConnect", chkStartup.Checked);
         chkSysProxy.CheckedChanged += (_, _) =>
         {
@@ -36,10 +40,12 @@ public partial class Form1 : Form
         FormClosing += (_, _) => { _cts?.Cancel(); KillProcess(); SystemProxy.Disable(); };
     }
 
-    private static void SaveSetting(string name, bool value)
+    private static void SaveSetting(string name, bool value) => SaveSetting(name, value ? 1 : 0);
+
+    private static void SaveSetting(string name, int value)
     {
         using var key = Registry.CurrentUser.CreateSubKey(SettingsKey);
-        key.SetValue(name, value ? 1 : 0);
+        key.SetValue(name, value);
     }
 
     private async void btnConnect_Click(object? sender, EventArgs e)
@@ -48,22 +54,28 @@ public partial class Form1 : Form
         _cts = new CancellationTokenSource();
         StartWatchdog();
         btnConnect.Text = "Disconnect";
+        btnConnect.BackColor = Palette.Card;
+        btnConnect.FlatAppearance.MouseOverBackColor = ControlPaint.Light(Palette.Card, 0.25f);
         await RunAsync(_cts.Token);
         _cts = null;
-        btnConnect.Text = "Auto Connect";
+        btnConnect.Text = "Connect";
+        btnConnect.BackColor = Palette.Primary;
+        btnConnect.FlatAppearance.MouseOverBackColor = ControlPaint.Light(Palette.Primary, 0.25f);
     }
 
-    // Try presets in random order; a preset that times out or drops is not retried until all others were tried.
+    // Auto: try the fast presets in random order; one that times out or drops is not retried until all others were tried.
+    // A chosen preset (including the slow manual-only ones) is simply retried.
     private async Task RunAsync(CancellationToken ct)
     {
         var untried = new List<Preset>();
+        var chosen = cboProtocol.SelectedIndex - 1; // -1 = Auto; read once, a new pick applies on the next Connect
         try
         {
-            SetStatus("Downloading aether...", Color.Orange);
+            SetStatus("Downloading aether...", Palette.Connecting);
             if (!await Aether.EnsureInstalledAsync(Log, ct)) return;
             while (true)
             {
-                if (untried.Count == 0) untried.AddRange(Aether.Presets);
+                if (untried.Count == 0) untried.AddRange(chosen < 0 ? Aether.AutoPresets : [Aether.Presets[chosen]]);
                 var p = untried[Random.Shared.Next(untried.Count)];
                 untried.Remove(p);
                 await ConnectAndMonitorAsync(p, ct);
@@ -74,7 +86,7 @@ public partial class Form1 : Form
         finally
         {
             KillProcess();
-            SetStatus("Disconnected", Color.Red);
+            SetStatus("Disconnected", Palette.Disconnected);
             lblDelay.Text = "Delay: -";
         }
     }
@@ -83,11 +95,11 @@ public partial class Form1 : Form
     private async Task ConnectAndMonitorAsync(Preset p, CancellationToken ct)
     {
         Log($"Trying {p.Name}...");
-        SetStatus($"Connecting: {p.Name}", Color.Orange);
+        SetStatus($"Connecting: {p.Name}", Palette.Connecting);
         var proc = _process = Aether.Start(p, Log);
         if (proc is null) return;
 
-        var ms = await Aether.WaitConnectedAsync(proc, ct);
+        var ms = await Aether.WaitConnectedAsync(proc, p.StartupSecs, ct);
         if (ms is null)
         {
             Log(proc.HasExited ? $"{p.Name}: process exited." : $"{p.Name}: no internet, switching.");
@@ -96,7 +108,7 @@ public partial class Form1 : Form
         }
 
         if (chkSysProxy.Checked) SystemProxy.Enable();
-        SetStatus($"Connected: {p.Name}", Color.SeaGreen);
+        SetStatus($"Connected: {p.Name}", Palette.Connected);
         Log($"Connected via {p.Name}, delay {ms} ms.");
         for (int fails = 0; fails < 2;)
         {
@@ -142,13 +154,14 @@ public partial class Form1 : Form
         Log("=== Recommendations ===", head);
         Log($"1. {secrets} aether*.toml file(s) beside the exe hold private keys/tokens: keep this folder private, rotate keys if shared.", tip);
         Log("2. Enable 'Set system proxy' only when needed; anything with its own proxy settings can bypass it.", tip);
-        Log("3. If Delay shows timeout repeatedly, the app auto-switches presets; try Masque (HTTP/2) on restrictive networks.", tip);
+        Log("3. Auto only rotates the fast protocols (30s each). Tor/Psiphon are manual: pick them on strict networks.", tip);
     }
 
     private void SetStatus(string text, Color color)
     {
         lblStatus.Text = "\u25CF " + text;
         lblStatus.ForeColor = color;
+        prgConnecting.Visible = color == Palette.Connecting;
     }
 
     private void Log(string msg) => Log(msg, null);

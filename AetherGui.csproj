@@ -14,7 +14,8 @@
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
   <ItemGroup>
-    <!-- aether.exe and its identity files ship beside AetherGui.exe -->
-    <None Include="aether.exe;aether.toml;aether-masque.toml" CopyToOutputDirectory="PreserveNewest" />
+    <!-- aether.exe, its identity files and pt/ (tor bridge transports) ship beside AetherGui.exe -->
+    <None Include="aether.exe;aether.toml;aether-masque.toml" CopyToOutputDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <None Include="pt\**" CopyToOutputDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 </Project>
