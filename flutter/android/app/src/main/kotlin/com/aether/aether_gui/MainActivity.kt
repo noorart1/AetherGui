@@ -1,6 +1,7 @@
 package com.aether.aether_gui
 
 import android.content.Intent
+import android.net.Uri
 import android.net.VpnService
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -15,6 +16,11 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "aether").setMethodCallHandler { call, result ->
             when (call.method) {
                 "dirs" -> result.success(listOf(applicationInfo.nativeLibraryDir, filesDir.path))
+                "appVersion" -> result.success(packageManager.getPackageInfo(packageName, 0).versionName)
+                "openUrl" -> {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(call.arguments as String)))
+                    result.success(null)
+                }
                 "vpnStart" -> {
                     val port = call.arguments as Int
                     val consent = VpnService.prepare(this)

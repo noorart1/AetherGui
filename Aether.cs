@@ -33,13 +33,33 @@ static class Aether
     {
         new("MASQUE", "--masque" + Warp),
         new("WireGuard", "--wg" + Warp),
-        new("WARP-in-WARP (gool)", "--gool" + Warp),
+        new("WARP-in-WARP (gool)", "--gool-classic" + Warp), // v2.3 renamed the classic carrier
         new("MASQUE-in-MASQUE", "--mim" + Warp),
         new("Tor alone", "--tor-only", 300, "--tor-http"),
         new("Tor + WARP", "--tor-reverse" + Warp, 300),         // warp reached via tor, exit via warp
         new("Psiphon alone", "--psiphon-only", 240, "--psiphon-http"),
         new("Psiphon + WARP", "--psiphon-reverse" + Warp, 240), // warp reached via psiphon, exit via warp
+        // Append: existing registry protocol indexes must remain stable.
+        new("MASQUE HTTP/2", "--masque --h2" + Warp),
+        new("MASQUE HTTP/2 + fragmentation", "--masque --h2 --fragment" + Warp),
+        new("MASQUE-in-MASQUE HTTP/2", "--mim --h2" + Warp),
+        new("MASQUE → Tor", "--masque --tor" + Warp, 300, "--tor-http"),
+        new("MASQUE HTTP/2 → Tor", "--masque --h2 --tor" + Warp, 300, "--tor-http"),
+        new("WireGuard → Tor", "--wg --tor" + Warp, 300, "--tor-http"),
+        new("WARP-in-WARP → Tor", "--gool-classic --tor" + Warp, 300, "--tor-http"),
+        new("MASQUE-in-MASQUE → Tor", "--mim --tor" + Warp, 300, "--tor-http"),
+        new("MASQUE → Psiphon", "--masque --psiphon" + Warp, 240, "--psiphon-http"),
+        new("MASQUE HTTP/2 → Psiphon", "--masque --h2 --psiphon" + Warp, 240, "--psiphon-http"),
+        new("WireGuard → Psiphon", "--wg --psiphon" + Warp, 240, "--psiphon-http"),
+        new("WARP-in-WARP → Psiphon", "--gool-classic --psiphon" + Warp, 240, "--psiphon-http"),
+        new("MASQUE-in-MASQUE → Psiphon", "--mim --psiphon" + Warp, 240, "--psiphon-http"),
+        new("WireGuard-in-MASQUE (gool)", "--gool" + Warp),
+        new("WireGuard-in-MASQUE HTTP/2", "--gool --h2" + Warp),
     };
+
+    // Display order is separate from persisted preset indexes.
+    public static readonly int[] MenuPresetIndexes = Enumerable.Range(0, Presets.Length)
+        .OrderBy(i => Presets[i].ManualOnly).ToArray();
 
     public static readonly Preset[] AutoPresets = Presets.Where(p => !p.ManualOnly).ToArray();
 
@@ -47,18 +67,67 @@ static class Aether
     private static readonly HttpClient Http = new(new SocketsHttpHandler { Proxy = new WebProxy($"socks5://127.0.0.1:{SocksPort}") })
     { Timeout = TimeSpan.FromSeconds(3) };
 
-    // If aether.exe is missing, download the latest Windows release from GitHub and verify its SHA-256.
-    // The whole archive is kept: pt/ holds the tor bridge transports and psiphon, which aether looks for beside itself.
-    public static async Task<bool> EnsureInstalledAsync(Action<string> log, CancellationToken ct)
+    public const string GuiRepo = "noorart1/AetherGui";
+    private const string CoreRepo = "CluvexStudio/Aether";
+
+    private static HttpClient GitHub(TimeSpan timeout)
     {
-        if (File.Exists(Exe)) return true;
+        var http = new HttpClient { Timeout = timeout };
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("AetherGui");
+        return http;
+    }
+
+    // null when the repo has no published release yet (GitHub answers 404).
+    private static async Task<System.Text.Json.JsonDocument?> LatestReleaseAsync(HttpClient http, string repo, CancellationToken ct)
+    {
+        using var response = await http.GetAsync($"https://api.github.com/repos/{repo}/releases/latest", ct);
+        if (response.StatusCode == HttpStatusCode.NotFound) return null;
+        response.EnsureSuccessStatusCode();
+        return System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+    }
+
+    // "v2.4.0", "aether 2.4.0" or "1.0.0.0" -> 2.4.0; always three parts so 1.0.0 equals 1.0.0.0.
+    public static Version? ParseVersion(string? text) =>
+        Version.TryParse(text?.Trim().Split(' ').Last().TrimStart('v'), out var v) ? new Version(v.Major, v.Minor, Math.Max(v.Build, 0)) : null;
+
+    public static Version AppVersion => ParseVersion(typeof(Aether).Assembly.GetName().Version?.ToString())!;
+
+    public static async Task<Version?> InstalledCoreVersionAsync(CancellationToken ct)
+    {
+        if (!File.Exists(Exe)) return null;
+        using var p = Process.Start(new ProcessStartInfo(Exe, "--version") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })!;
+        return ParseVersion(await p.StandardOutput.ReadToEndAsync(ct));
+    }
+
+    public record Updates(Version? Core, Version? LatestCore, Version? LatestGui, string? GuiPage)
+    {
+        public bool CoreNewer => LatestCore is not null && (Core is null || LatestCore > Core);
+        public bool GuiNewer => LatestGui is not null && LatestGui > AppVersion;
+    }
+
+    public static async Task<Updates> CheckUpdatesAsync(CancellationToken ct)
+    {
+        using var http = GitHub(TimeSpan.FromSeconds(15));
+        using var core = await LatestReleaseAsync(http, CoreRepo, ct);
+        using var gui = await LatestReleaseAsync(http, GuiRepo, ct);
+        return new Updates(await InstalledCoreVersionAsync(ct),
+            ParseVersion(core?.RootElement.GetProperty("tag_name").GetString()),
+            ParseVersion(gui?.RootElement.GetProperty("tag_name").GetString()),
+            gui?.RootElement.GetProperty("html_url").GetString());
+    }
+
+    public static Task<bool> EnsureInstalledAsync(Action<string> log, CancellationToken ct) =>
+        File.Exists(Exe) ? Task.FromResult(true) : InstallCoreAsync("aether.exe not found, downloading the latest release from GitHub...", log, ct);
+
+    // Downloads the latest Windows release from GitHub and verifies its SHA-256; also used to update in place.
+    // The whole archive is kept: pt/ holds the tor bridge transports and psiphon, which aether looks for beside itself.
+    public static async Task<bool> InstallCoreAsync(string reason, Action<string> log, CancellationToken ct)
+    {
         try
         {
-            log("aether.exe not found, downloading the latest release from GitHub...");
-            using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("AetherGui");
-            using var release = System.Text.Json.JsonDocument.Parse(
-                await http.GetStringAsync("https://api.github.com/repos/CluvexStudio/Aether/releases/latest", ct));
+            log(reason);
+            using var http = GitHub(TimeSpan.FromMinutes(5));
+            using var release = await LatestReleaseAsync(http, CoreRepo, ct) ?? throw new Exception("no release published");
             string? Asset(string name) => release.RootElement.GetProperty("assets").EnumerateArray()
                 .FirstOrDefault(a => a.GetProperty("name").GetString() == name)
                 .TryGetProperty("browser_download_url", out var u) ? u.GetString() : null;
@@ -84,35 +153,77 @@ static class Aether
         }
     }
 
-    // SOCKS5 (aether default) for our own test, HTTP proxy for the system proxy.
-    public static Process? Start(Preset p, Action<string> log)
+    public static ProcessStartInfo CreateStartInfo(Preset p, CoreOptions options, string scan = "turbo")
+    {
+        var args = p.Args.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(a => a is not ("--turbo" or "-4" or "--quick-reconnect")).ToList();
+        bool tor = args.Contains("--tor"), psiphon = args.Contains("--psiphon");
+        args.AddRange(options.Arguments);
+        args.AddRange(["--bind", $"127.0.0.1:{(tor || psiphon ? 1822 : SocksPort)}"]);
+        if (tor) args.AddRange(["--tor-bind", $"127.0.0.1:{SocksPort}"]);
+        if (psiphon) args.AddRange(["--psiphon-bind", $"127.0.0.1:{SocksPort}"]);
+        args.AddRange([p.HttpFlag, $"127.0.0.1:{HttpPort}"]);
+        var info = new ProcessStartInfo(Exe)
+        {
+            WorkingDirectory = Dir, UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8,
+            StandardInputEncoding = new UTF8Encoding(false)
+        };
+        foreach (var arg in args) info.ArgumentList.Add(arg);
+        info.Environment["AETHER_SCAN"] = scan;
+        info.Environment["AETHER_IP"] = "4";
+        info.Environment["AETHER_QUICK_RECONNECT"] = "1";
+        foreach (var (key, value) in options.EnvironmentVariables) info.Environment[key] = value;
+        return info;
+    }
+
+    // Both listeners use the selected exit, including forward Tor/Psiphon modes.
+    public static Process? Start(Preset p, Action<string> log, CoreOptions options, string scan = "turbo")
     {
         try
         {
-            var proc = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = Exe,
-                    Arguments = p.Args + $" --bind 127.0.0.1:{SocksPort} {p.HttpFlag} 127.0.0.1:{HttpPort}",
-                    WorkingDirectory = Dir,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    RedirectStandardInput = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    StandardOutputEncoding = Encoding.UTF8,
-                    StandardErrorEncoding = Encoding.UTF8
-                }
-            };
-            proc.OutputDataReceived += (_, e) => { if (e.Data != null) log(e.Data); };
-            proc.ErrorDataReceived += (_, e) => { if (e.Data != null) log(e.Data); };
-            proc.Start();
-            proc.BeginOutputReadLine();
-            proc.BeginErrorReadLine();
+            var proc = new Process { StartInfo = CreateStartInfo(p, options, scan) };
+            try { proc.Start(); }
+            catch { proc.Dispose(); throw; }
+            _ = PumpOutputAsync(proc.StandardOutput, log);
+            _ = PumpOutputAsync(proc.StandardError, log);
             return proc;
         }
-        catch (Exception ex) { log($"Start failed: {ex.Message}"); return null; }
+        catch { log("Core start failed. Check the executable and core settings."); return null; }
+    }
+
+    private static async Task PumpOutputAsync(StreamReader reader, Action<string> log)
+    {
+        try
+        {
+            var buffer = new char[2048];
+            int count;
+            // Unlike ReadLine, this displays prompts that have no trailing newline.
+            while ((count = await reader.ReadAsync(buffer)) > 0)
+                foreach (var line in new string(buffer, 0, count).Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+                    log(line);
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+    }
+
+    public static async Task<string> ReadHelpAsync(CancellationToken ct)
+    {
+        using var proc = new Process { StartInfo = new ProcessStartInfo(Exe, "--help")
+        {
+            WorkingDirectory = Dir, UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
+        } };
+        proc.Start();
+        try
+        {
+            var stdout = proc.StandardOutput.ReadToEndAsync(ct);
+            var stderr = proc.StandardError.ReadToEndAsync(ct);
+            await proc.WaitForExitAsync(ct);
+            return await stdout + Environment.NewLine + await stderr;
+        }
+        finally { if (!proc.HasExited) proc.Kill(true); }
     }
 
     // Waits for a passing internet test through aether's proxy. Gives up once the startup budget is spent

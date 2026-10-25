@@ -10,19 +10,28 @@ public partial class Form1 : Form
 
     private Process? _process;
     private CancellationTokenSource? _cts;
+    private CoreOptions _coreOptions = new();
+    private readonly int[] _protocolIndexes = [-1, .. Aether.MenuPresetIndexes];
+    private static readonly string[] ScanModes = ["turbo", "balanced"]; // saved as an index into this
 
     public Form1()
     {
         InitializeComponent();
         cboProtocol.Items.Add("Auto (fast protocols)");
-        cboProtocol.Items.AddRange(Aether.Presets.Select(p => (object)p.Label).ToArray());
+        cboProtocol.Items.AddRange(Aether.MenuPresetIndexes.Select(i => (object)Aether.Presets[i].Label).ToArray());
+        cboScan.Items.AddRange(["Fast: first server that answers", "Balanced: tries a few, keeps the fastest"]);
         using (var key = Registry.CurrentUser.OpenSubKey(SettingsKey))
         {
             chkStartup.Checked = key?.GetValue("AutoConnect") is 1;
             chkSysProxy.Checked = key?.GetValue("SetSystemProxy") is 1;
-            cboProtocol.SelectedIndex = key?.GetValue("Protocol") is int i && i >= 0 && i < cboProtocol.Items.Count ? i : 0;
+            var saved = key?.GetValue("Protocol") is int i && i >= 0 && i <= Aether.Presets.Length ? i : 0;
+            cboProtocol.SelectedIndex = Array.IndexOf(_protocolIndexes, saved - 1);
+            cboScan.SelectedIndex = key?.GetValue("Scan") is 1 ? 1 : 0;
         }
-        cboProtocol.SelectedIndexChanged += (_, _) => SaveSetting("Protocol", cboProtocol.SelectedIndex);
+        try { _coreOptions = CoreOptions.Load(); }
+        catch { chkStartup.Checked = false; Log("Could not load core settings. Review settings before connecting."); }
+        cboProtocol.SelectedIndexChanged += (_, _) => SaveSetting("Protocol", _protocolIndexes[cboProtocol.SelectedIndex] + 1);
+        cboScan.SelectedIndexChanged += (_, _) => SaveSetting("Scan", cboScan.SelectedIndex);
         chkStartup.CheckedChanged += (_, _) => SaveSetting("AutoConnect", chkStartup.Checked);
         chkSysProxy.CheckedChanged += (_, _) =>
         {
@@ -32,6 +41,7 @@ public partial class Form1 : Form
         };
         Shown += async (_, _) =>
         {
+            _ = CheckUpdatesAsync(interactive: false);
             if (!chkStartup.Checked) return;
             Log($"Auto-connecting in {StartupDelayMs / 1000}s...");
             await Task.Delay(StartupDelayMs);
@@ -54,13 +64,17 @@ public partial class Form1 : Form
         _cts = new CancellationTokenSource();
         StartWatchdog();
         btnConnect.Text = "Disconnect";
-        btnConnect.BackColor = Palette.Card;
-        btnConnect.FlatAppearance.MouseOverBackColor = ControlPaint.Light(Palette.Card, 0.25f);
+        btnConnect.AccessibleName = "Disconnect";
+        btnCoreSettings.Enabled = cboProtocol.Enabled = cboScan.Enabled = btnUpdates.Enabled = false;
+        btnCoreInput.Enabled = true;
         await RunAsync(_cts.Token);
+        _cts.Dispose();
         _cts = null;
-        btnConnect.Text = "Connect";
-        btnConnect.BackColor = Palette.Primary;
-        btnConnect.FlatAppearance.MouseOverBackColor = ControlPaint.Light(Palette.Primary, 0.25f);
+        if (IsDisposed) return;
+        btnCoreSettings.Enabled = cboProtocol.Enabled = cboScan.Enabled = btnUpdates.Enabled = true;
+        btnCoreInput.Enabled = false;
+        btnConnect.Text = "Connect securely";
+        btnConnect.AccessibleName = "Connect securely";
     }
 
     // Auto: try the fast presets in random order; one that times out or drops is not retried until all others were tried.
@@ -68,7 +82,8 @@ public partial class Form1 : Form
     private async Task RunAsync(CancellationToken ct)
     {
         var untried = new List<Preset>();
-        var chosen = cboProtocol.SelectedIndex - 1; // -1 = Auto; read once, a new pick applies on the next Connect
+        var chosen = _protocolIndexes[cboProtocol.SelectedIndex]; // -1 = Auto; read once, a new pick applies on the next Connect
+        var scan = ScanModes[cboScan.SelectedIndex];
         try
         {
             SetStatus("Downloading aether...", Palette.Connecting);
@@ -78,7 +93,7 @@ public partial class Form1 : Form
                 if (untried.Count == 0) untried.AddRange(chosen < 0 ? Aether.AutoPresets : [Aether.Presets[chosen]]);
                 var p = untried[Random.Shared.Next(untried.Count)];
                 untried.Remove(p);
-                await ConnectAndMonitorAsync(p, ct);
+                await ConnectAndMonitorAsync(p, scan, ct);
                 await Task.Delay(1000, ct);
             }
         }
@@ -92,14 +107,15 @@ public partial class Form1 : Form
     }
 
     // Returns when the preset fails to connect within the timeout, or after a connected session drops.
-    private async Task ConnectAndMonitorAsync(Preset p, CancellationToken ct)
+    private async Task ConnectAndMonitorAsync(Preset p, string scan, CancellationToken ct)
     {
         Log($"Trying {p.Name}...");
         SetStatus($"Connecting: {p.Name}", Palette.Connecting);
-        var proc = _process = Aether.Start(p, Log);
+        var proc = _process = Aether.Start(p, Log, _coreOptions, scan);
         if (proc is null) return;
 
-        var ms = await Aether.WaitConnectedAsync(proc, p.StartupSecs, ct);
+        var ms = await Aether.WaitConnectedAsync(proc,
+            _coreOptions.IsConfigured ? _coreOptions.StartupSeconds : p.StartupSecs, ct);
         if (ms is null)
         {
             Log(proc.HasExited ? $"{p.Name}: process exited." : $"{p.Name}: no internet, switching.");
@@ -141,10 +157,79 @@ public partial class Form1 : Form
         _process = null;
     }
 
+    private void ShowCoreSettings()
+    {
+        if (_cts != null) return;
+        using var dialog = new CoreSettingsForm(_coreOptions);
+        if (dialog.ShowDialog(this) == DialogResult.OK) _coreOptions = dialog.Options;
+    }
+
+    // The startup check only logs what is new; the button also offers to install it.
+    // The core is replaced only while disconnected, since a running aether.exe cannot be overwritten.
+    private async Task CheckUpdatesAsync(bool interactive)
+    {
+        if (interactive) Log("Checking for updates...");
+        Aether.Updates u;
+        try { u = await Aether.CheckUpdatesAsync(CancellationToken.None); }
+        catch (Exception ex) { if (interactive) Log($"Update check failed: {ex.Message}"); return; }
+        if (IsDisposed) return;
+
+        if (u.GuiNewer)
+        {
+            Log($"AetherGui {u.LatestGui} is available (you have {Aether.AppVersion}).", Color.Blue);
+            if (interactive && u.GuiPage?.StartsWith("https://github.com/") == true && MessageBox.Show(this, $"AetherGui {u.LatestGui} is available. Open the download page?", "Update available",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+                Process.Start(new ProcessStartInfo(u.GuiPage!) { UseShellExecute = true });
+        }
+        if (u.CoreNewer)
+        {
+            Log($"Core {u.LatestCore} is available (you have {u.Core?.ToString() ?? "none"}).", Color.Blue);
+            if (!interactive) Log("Click 'Check for updates' to install it.");
+            else if (_cts != null) Log("Disconnect first to update the core.");
+            else if (MessageBox.Show(this, $"Update the core to {u.LatestCore}?", "Update available",
+                         MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+            {
+                btnConnect.Enabled = btnUpdates.Enabled = false;
+                if (await Aether.InstallCoreAsync($"Updating the core to {u.LatestCore}...", Log, CancellationToken.None))
+                    Log($"Core is now {await Aether.InstalledCoreVersionAsync(CancellationToken.None)}.");
+                btnConnect.Enabled = btnUpdates.Enabled = true;
+            }
+        }
+        if (interactive && !u.GuiNewer && !u.CoreNewer)
+            Log($"Up to date: AetherGui {Aether.AppVersion}, core {u.Core?.ToString() ?? "not installed"}.");
+    }
+
+    private async Task SendCoreInputAsync()
+    {
+        var proc = _process;
+        if (proc is null || proc.HasExited) { Log("Core is not running yet."); return; }
+        using var dialog = new Form
+        {
+            Text = "Core input", ClientSize = new Size(440, 140), MinimumSize = new Size(360, 180),
+            StartPosition = FormStartPosition.CenterParent, AutoScaleMode = AutoScaleMode.Dpi
+        };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), RowCount = 3, ColumnCount = 1 };
+        layout.Controls.Add(new Label { Text = "Code or prompt response (not logged)", AutoSize = true });
+        var input = new TextBox { UseSystemPasswordChar = true, Dock = DockStyle.Top };
+        layout.Controls.Add(input);
+        var send = new Button { Text = "Send", DialogResult = DialogResult.OK, AutoSize = true };
+        layout.Controls.Add(send); dialog.Controls.Add(layout); dialog.AcceptButton = send;
+        if (dialog.ShowDialog(this) != DialogResult.OK || input.Text.Length == 0) return;
+        if (_process != proc) { Log("Core changed; input was not sent."); return; }
+        try
+        {
+            if (proc.HasExited) { Log("Core exited; input was not sent."); return; }
+            await proc.StandardInput.WriteLineAsync(input.Text);
+            await proc.StandardInput.FlushAsync();
+            Log("Input sent to core.");
+        }
+        catch { Log("Could not send input to core."); }
+    }
+
     private void ShowProxyInfo()
     {
         var secrets = Directory.GetFiles(AppContext.BaseDirectory, "aether*.toml").Length;
-        var head = Color.Cyan; var info = Color.White; var tip = Color.Gold;
+        var head = Color.Blue; Color? info = null; var tip = Color.DarkOrange;
         Log("=== Proxy info ===", head);
         Log($"System proxy: {SystemProxy.Status()}", info);
         Log($"HTTP {Aether.HttpPort} (system proxy) | SOCKS5 1818 (delay test, free for manual use)", info);
@@ -160,6 +245,7 @@ public partial class Form1 : Form
     private void SetStatus(string text, Color color)
     {
         lblStatus.Text = "\u25CF " + text;
+        lblStatus.AccessibleName = "Connection status: " + text;
         lblStatus.ForeColor = color;
         prgConnecting.Visible = color == Palette.Connecting;
     }
@@ -168,7 +254,12 @@ public partial class Form1 : Form
 
     private void Log(string msg, Color? color)
     {
-        if (InvokeRequired) { BeginInvoke(() => Log(msg, color)); return; }
+        if (IsDisposed || Disposing) return;
+        if (InvokeRequired)
+        {
+            try { BeginInvoke(() => Log(msg, color)); } catch (InvalidOperationException) { }
+            return;
+        }
         txtLog.SelectionStart = txtLog.TextLength;
         txtLog.SelectionColor = color ?? txtLog.ForeColor;
         txtLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {msg}{Environment.NewLine}");

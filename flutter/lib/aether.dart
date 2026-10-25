@@ -4,12 +4,21 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import 'core_options.dart';
+
 class Preset {
   final String name, args, httpFlag;
   final int startupSecs;
-  const Preset(this.name, this.args, [this.startupSecs = Aether.fastSecs, this.httpFlag = '--http-proxy']);
+  const Preset(
+    this.name,
+    this.args, [
+    this.startupSecs = Aether.fastSecs,
+    this.httpFlag = '--http-proxy',
+  ]);
 
-  bool get manualOnly => startupSecs > Aether.fastSecs; // too slow to wait for in the Auto rotation
+  bool get manualOnly =>
+      startupSecs >
+      Aether.fastSecs; // too slow to wait for in the Auto rotation
   String get label => manualOnly ? '$name (manual)' : name;
 }
 
@@ -24,7 +33,10 @@ class Cancel {
   void cancel() => isCancelled ? null : _done.complete();
   void check() => isCancelled ? throw Cancelled() : null;
   Future<void> delay(int ms) async {
-    await Future.any([Future.delayed(Duration(milliseconds: ms)), _done.future]);
+    await Future.any([
+      Future.delayed(Duration(milliseconds: ms)),
+      _done.future,
+    ]);
     check();
   }
 }
@@ -41,12 +53,14 @@ class AetherProcess {
 // Everything about the aether binary itself: where it lives, starting it, and testing its tunnel.
 class Aether {
   static const testUrl = 'http://www.gstatic.com/generate_204';
-  static const connectTimeoutMs = 10000; // after the proxy is up, the internet test must pass within this
+  static const connectTimeoutMs =
+      10000; // after the proxy is up, the internet test must pass within this
   static const httpPort = 1819; // HTTP proxy: point Wi-Fi proxy / apps here
   static const socksPort = 1818; // SOCKS5, free for apps that support it
 
   static const _warp = '--turbo -4 --quick-reconnect';
-  static const fastSecs = 30; // startup budget of the fast protocols, the only ones Auto rotates through
+  static const fastSecs =
+      30; // startup budget of the fast protocols, the only ones Auto rotates through
 
   // The protocol menu aether itself offers. Tor/Psiphon bootstrap slowly (tor tries 75s plainly, then bridges;
   // psiphon waits up to 180s), so they get longer startup budgets and run only when picked by hand.
@@ -54,18 +68,82 @@ class Aether {
   static const presets = <Preset>[
     Preset('MASQUE', '--masque $_warp'),
     Preset('WireGuard', '--wg $_warp'),
-    Preset('WARP-in-WARP (gool)', '--gool $_warp'),
+    // v2.3 renamed the classic carrier; preserve saved protocol semantics.
+    Preset('WARP-in-WARP (gool)', '--gool-classic $_warp'),
     Preset('MASQUE-in-MASQUE', '--mim $_warp'),
     Preset('Tor alone', '--tor-only', 300, '--tor-http'),
-    Preset('Tor + WARP', '--tor-reverse $_warp', 300), // warp reached via tor, exit via warp
+    Preset(
+      'Tor + WARP',
+      '--tor-reverse $_warp',
+      300,
+    ), // warp reached via tor, exit via warp
     Preset('Psiphon alone', '--psiphon-only', 240, '--psiphon-http'),
-    Preset('Psiphon + WARP', '--psiphon-reverse $_warp', 240), // warp reached via psiphon, exit via warp
+    Preset(
+      'Psiphon + WARP',
+      '--psiphon-reverse $_warp',
+      240,
+    ), // warp reached via psiphon, exit via warp
+    // Append to preserve existing saved preset indexes.
+    Preset('MASQUE HTTP/2', '--masque --h2 $_warp'),
+    Preset('MASQUE HTTP/2 + fragmentation', '--masque --h2 --fragment $_warp'),
+    Preset('MASQUE-in-MASQUE HTTP/2', '--mim --h2 $_warp'),
+    Preset('MASQUE → Tor', '--masque --tor $_warp', 300, '--tor-http'),
+    Preset(
+      'MASQUE HTTP/2 → Tor',
+      '--masque --h2 --tor $_warp',
+      300,
+      '--tor-http',
+    ),
+    Preset('WireGuard → Tor', '--wg --tor $_warp', 300, '--tor-http'),
+    Preset(
+      'WARP-in-WARP → Tor',
+      '--gool-classic --tor $_warp',
+      300,
+      '--tor-http',
+    ),
+    Preset('MASQUE-in-MASQUE → Tor', '--mim --tor $_warp', 300, '--tor-http'),
+    Preset(
+      'MASQUE → Psiphon',
+      '--masque --psiphon $_warp',
+      240,
+      '--psiphon-http',
+    ),
+    Preset(
+      'MASQUE HTTP/2 → Psiphon',
+      '--masque --h2 --psiphon $_warp',
+      240,
+      '--psiphon-http',
+    ),
+    Preset(
+      'WireGuard → Psiphon',
+      '--wg --psiphon $_warp',
+      240,
+      '--psiphon-http',
+    ),
+    Preset(
+      'WARP-in-WARP → Psiphon',
+      '--gool-classic --psiphon $_warp',
+      240,
+      '--psiphon-http',
+    ),
+    Preset(
+      'MASQUE-in-MASQUE → Psiphon',
+      '--mim --psiphon $_warp',
+      240,
+      '--psiphon-http',
+    ),
+    Preset('WireGuard-in-MASQUE (gool)', '--gool $_warp'),
+    Preset('WireGuard-in-MASQUE HTTP/2', '--gool --h2 $_warp'),
   ];
 
-  static late String exe; // libaether.so in nativeLibraryDir, packed by fetch_aether.sh
-  static late String lyrebird; // tor bridge transport (obfs4, webtunnel), packed beside it as liblyrebird.so
-  static late String psiphon; // psiphon-tunnel-core, packed beside it as libpsiphon.so
-  static late String dir; // app files dir: aether's working dir, holds its identity .toml files
+  static late String
+  exe; // libaether.so in nativeLibraryDir, packed by fetch_aether.sh
+  static late String
+  lyrebird; // tor bridge transport (obfs4, webtunnel), packed beside it as liblyrebird.so
+  static late String
+  psiphon; // psiphon-tunnel-core, packed beside it as libpsiphon.so
+  static late String
+  dir; // app files dir: aether's working dir, holds its identity .toml files
 
   static const _ch = MethodChannel('aether');
 
@@ -78,38 +156,117 @@ class Aether {
   }
 
   // Full-device VPN (tun2socks onto the SOCKS port); false if the user declined the VPN prompt.
-  static Future<bool> vpnStart() async => await _ch.invokeMethod<bool>('vpnStart', socksPort) ?? false;
+  static Future<bool> vpnStart() async =>
+      await _ch.invokeMethod<bool>('vpnStart', socksPort) ?? false;
   static Future<void> vpnStop() => _ch.invokeMethod('vpnStop');
+
+  static const guiRepo = 'noorart1/AetherGui';
+  static Future<String?> appVersion() => _ch.invokeMethod<String>('appVersion');
+  static Future<void> openUrl(String url) => _ch.invokeMethod('openUrl', url);
+
+  // "v1.2.0" or "1.2.0+3" -> [1, 2, 0]; null if it is not a version.
+  static List<int>? parseVersion(String? s) {
+    final m = RegExp(r'(\d+)\.(\d+)(?:\.(\d+))?').firstMatch(s ?? '');
+    return m == null
+        ? null
+        : [for (var g = 1; g <= 3; g++) int.parse(m.group(g) ?? '0')];
+  }
+
+  static bool isNewer(List<int> a, List<int> b) {
+    for (var i = 0; i < 3; i++) {
+      if (a[i] != b[i]) return a[i] > b[i];
+    }
+    return false;
+  }
+
+  // The latest GitHub release as (tag, page), or null when none is published yet (404).
+  // The core is packed in the APK, so on Android a new core arrives with a new app release.
+  static Future<(String, String)?> latestGuiRelease() async {
+    final http = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    try {
+      final req = await http.getUrl(
+        Uri.parse('https://api.github.com/repos/$guiRepo/releases/latest'),
+      );
+      req.headers.set('User-Agent', 'AetherGui');
+      final res = await req.close().timeout(const Duration(seconds: 15));
+      final body = await res.transform(utf8.decoder).join();
+      if (res.statusCode == 404) return null;
+      if (res.statusCode != 200)
+        throw HttpException('GitHub answered ${res.statusCode}');
+      final json = jsonDecode(body) as Map<String, dynamic>;
+      return (json['tag_name'] as String, json['html_url'] as String);
+    } finally {
+      http.close();
+    }
+  }
 
   // A real request through aether's HTTP proxy measures the real delay.
   static final _http = HttpClient()
     ..findProxy = ((_) => 'PROXY 127.0.0.1:$httpPort')
     ..connectionTimeout = const Duration(seconds: 3);
 
-  static Future<AetherProcess?> start(Preset p, Log log) async {
+  static List<String> launchArguments(Preset p, CoreOptions options) {
+    final args = p.args
+        .split(' ')
+        .where((a) => !['--turbo', '-4', '--quick-reconnect'].contains(a))
+        .toList();
+    final torExit = args.contains('--tor');
+    final psiphonExit = args.contains('--psiphon');
+    return [
+      ...args, ...options.arguments,
+      if (p.args.contains('--tor')) ...['--tor-pt', lyrebird],
+      if (p.args.contains('--psiphon')) ...['--psiphon-bin', psiphon],
+      // Forward modes have TWO listeners: the VPN and latency test must use
+      // the second (Tor/Psiphon) exit, not silently stay on the WARP exit.
+      '--bind', '127.0.0.1:${torExit || psiphonExit ? 1822 : socksPort}',
+      if (torExit) ...['--tor-bind', '127.0.0.1:$socksPort'],
+      if (psiphonExit) ...['--psiphon-bind', '127.0.0.1:$socksPort'],
+      p.httpFlag, '127.0.0.1:$httpPort',
+    ];
+  }
+
+  static Future<AetherProcess?> start(
+    Preset p,
+    Log log, [
+    CoreOptions options = const CoreOptions(),
+    String scan = 'turbo',
+  ]) async {
     try {
-      // aether looks for these helpers by their own names, which Android's lib*.so packing can't keep.
-      final helper = p.args.contains('--tor')
-          ? ['--tor-pt', lyrebird]
-          : p.args.contains('--psiphon')
-              ? ['--psiphon-bin', psiphon]
-              : <String>[];
       final proc = await Process.start(
-          exe, [...p.args.split(' '), ...helper, '--bind', '127.0.0.1:$socksPort', p.httpFlag, '127.0.0.1:$httpPort'],
-          workingDirectory: dir, environment: {'HOME': dir});
+        exe,
+        launchArguments(p, options),
+        workingDirectory: dir,
+        environment: {
+          'HOME': dir,
+          'AETHER_SCAN': scan,
+          'AETHER_IP': '4',
+          'AETHER_QUICK_RECONNECT': '1',
+          ...options.environment,
+        },
+      );
       for (final s in [proc.stdout, proc.stderr]) {
-        s.transform(const Utf8Decoder(allowMalformed: true)).transform(const LineSplitter()).listen(log);
+        // Prompts (including email OTP) may not end with a newline.
+        s.transform(const Utf8Decoder(allowMalformed: true)).listen((chunk) {
+          for (final line in chunk.split(RegExp(r'[\r\n]+'))) {
+            if (line.trim().isNotEmpty) log(line);
+          }
+        }, onError: (_) => log('Core output stream failed.'));
       }
       return AetherProcess(proc);
-    } catch (e) {
-      log('Start failed: $e');
+    } catch (_) {
+      // ProcessException can include arguments containing access tokens.
+      log('Core start failed. Check bundled binaries and core settings.');
       return null;
     }
   }
 
   // Waits for a passing internet test through aether's proxy. Gives up once the startup budget is spent
   // and the proxy has been up for connectTimeoutMs without passing (tor opens its port long before it can carry traffic).
-  static Future<int?> waitConnected(AetherProcess proc, int startupSecs, Cancel ct) async {
+  static Future<int?> waitConnected(
+    AetherProcess proc,
+    int startupSecs,
+    Cancel ct,
+  ) async {
     final sw = Stopwatch()..start();
     int? upAt;
     while (!proc.exited) {
@@ -119,7 +276,9 @@ class Aether {
         if (ms != null) return ms;
       }
       final t = sw.elapsedMilliseconds;
-      if (t > startupSecs * 1000 && (upAt == null || t - upAt > connectTimeoutMs)) return null;
+      if (t > startupSecs * 1000 &&
+          (upAt == null || t - upAt > connectTimeoutMs))
+        return null;
       await ct.delay(500);
     }
     return null;
@@ -127,7 +286,11 @@ class Aether {
 
   static Future<bool> _portOpen() async {
     try {
-      (await Socket.connect('127.0.0.1', socksPort, timeout: const Duration(seconds: 1))).destroy();
+      (await Socket.connect(
+        '127.0.0.1',
+        socksPort,
+        timeout: const Duration(seconds: 1),
+      )).destroy();
       return true;
     } catch (_) {
       return false;
@@ -141,7 +304,9 @@ class Aether {
       req.persistentConnection = false;
       final res = await req.close();
       await res.drain<void>();
-      return res.statusCode == HttpStatus.noContent ? sw.elapsedMilliseconds : null;
+      return res.statusCode == HttpStatus.noContent
+          ? sw.elapsedMilliseconds
+          : null;
     }
 
     int? ms;
