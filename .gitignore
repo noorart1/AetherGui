@@ -6,3 +6,5 @@ publish/
 aether-tor/
 .claude/
 flutter/android/build/
+release-out/
+graphify-out/
