@@ -166,6 +166,36 @@ class Aether {
   static Future<void> vpnSettings() => _ch.invokeMethod('vpnSettings');
 
   // "v1.2.0" or "1.2.0+3" -> [1, 2, 0]; null if it is not a version.
+  // Auto order from past connects (preset index -> ms to connect, -1 = failed last time):
+  // fastest first, then never tried, then failed; ties shuffled (List.sort is not stable, so ties use the shuffle position).
+  static List<Preset> autoOrder(Map<int, int> connectMs) {
+    int key(int i) => switch (connectMs[i]) {
+      null => fastSecs * 1000,
+      < 0 => 1 << 31,
+      final ms => ms,
+    };
+    final shuffled = [
+      for (final (i, p) in presets.indexed)
+        if (!p.manualOnly) i,
+    ]..shuffle();
+    final rank = {for (final (pos, i) in shuffled.indexed) i: pos};
+    shuffled.sort((a, b) {
+      final c = key(a).compareTo(key(b));
+      return c != 0 ? c : rank[a]!.compareTo(rank[b]!);
+    });
+    return [for (final i in shuffled) presets[i]];
+  }
+
+  // Saved as "0:4200,8:-1"; unknown or malformed entries are dropped.
+  static Map<int, int> parseConnectMs(String? s) => {
+    for (final m in RegExp(r'(\d+):(-?\d+)').allMatches(s ?? ''))
+      if (int.parse(m.group(1)!) < presets.length)
+        int.parse(m.group(1)!): int.parse(m.group(2)!),
+  };
+
+  static String formatConnectMs(Map<int, int> connectMs) =>
+      connectMs.entries.map((e) => '${e.key}:${e.value}').join(',');
+
   static List<int>? parseVersion(String? s) {
     final m = RegExp(r'(\d+)\.(\d+)(?:\.(\d+))?').firstMatch(s ?? '');
     return m == null

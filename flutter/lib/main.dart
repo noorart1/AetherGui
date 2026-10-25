@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 
@@ -80,7 +79,8 @@ class _HomePageState extends State<HomePage> {
   final _changes = ValueNotifier(0); // tells an open Settings page to rebuild
   final _lines = <(String, Color?)>[];
   final _scroll = ScrollController();
-  final _rng = Random();
+  // preset index -> ms its last connect took, -1 = failed; orders Auto
+  var _connectMs = <int, int>{};
 
   File get _settings => File('${Aether.dir}/settings.txt');
 
@@ -97,6 +97,9 @@ class _HomePageState extends State<HomePage> {
           -1;
       _preset = i >= -1 && i < Aether.presets.length ? i : -1;
       if (s.contains('Scan=balanced')) _scan = 'balanced';
+      _connectMs = Aether.parseConnectMs(
+        RegExp(r'ConnectMs=(.*)').firstMatch(s)?.group(1),
+      );
     } catch (_) {}
     try {
       _coreOptions = CoreOptions.load(Aether.dir);
@@ -132,10 +135,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _saveSettings() => _settings.writeAsStringSync(
-    'AutoConnect=${_autoConnect ? 1 : 0}\nPreset=$_preset\nScan=$_scan\n',
+    'AutoConnect=${_autoConnect ? 1 : 0}\nPreset=$_preset\nScan=$_scan\n'
+    'ConnectMs=${Aether.formatConnectMs(_connectMs)}\n',
   );
 
-  // Auto: try the fast presets in random order; one that times out or drops is not retried until all others were tried.
+  // Auto: try the fast presets, fastest past connect first; one that times out or drops is not retried until all others were tried.
   // A chosen preset (including the slow manual-only ones) is simply retried.
   Future<void> _run(Cancel ct) async {
     final untried = <Preset>[];
@@ -146,14 +150,11 @@ class _HomePageState extends State<HomePage> {
         if (untried.isEmpty) {
           untried.addAll(
             _preset < 0
-                ? Aether.presets.where((p) => !p.manualOnly)
+                ? Aether.autoOrder(_connectMs)
                 : [Aether.presets[_preset]],
           );
         }
-        await _connectAndMonitor(
-          untried.removeAt(_rng.nextInt(untried.length)),
-          ct,
-        );
+        await _connectAndMonitor(untried.removeAt(0), ct);
         await ct.delay(1000);
       }
     } on Cancelled {
@@ -175,11 +176,16 @@ class _HomePageState extends State<HomePage> {
     final proc = _process = await Aether.start(p, _log, _coreOptions, _scan);
     if (proc == null) return;
 
+    final took = Stopwatch()..start();
     int? ms = await Aether.waitConnected(
       proc,
       _coreOptions.isConfigured ? _coreOptions.startupSeconds : p.startupSecs,
       ct,
     );
+    _connectMs[Aether.presets.indexOf(p)] = ms == null
+        ? -1
+        : took.elapsedMilliseconds;
+    _saveSettings();
     if (ms == null) {
       _log(
         proc.exited
@@ -191,7 +197,9 @@ class _HomePageState extends State<HomePage> {
     }
 
     _setStatus('Connected: ${p.name}', seaGreen);
-    _log('Connected via ${p.name}, delay $ms ms.');
+    _log(
+      'Connected via ${p.name} in ${(took.elapsedMilliseconds / 1000).toStringAsFixed(1)}s, delay $ms ms.',
+    );
     _log(
       await Aether.vpnStart()
           ? 'VPN on: all apps go through aether.'

@@ -44,6 +44,15 @@ static class Checks
         }
         Check(Aether.CreateStartInfo(Aether.Presets[0], new CoreOptions(), "balanced").Environment["AETHER_SCAN"] == "balanced", "Chosen scan mode reaches the core");
         Check(Aether.CreateStartInfo(Aether.Presets[0], new CoreOptions()).Environment["AETHER_SCAN"] == "turbo", "Fast scan is the default");
+        {
+            int Index(string name) => Array.FindIndex(Aether.Presets, p => p.Name == name);
+            var past = new Dictionary<int, int> { [Index("WireGuard")] = 9000, [Index("MASQUE")] = 3000, [Index("MASQUE-in-MASQUE")] = -1 };
+            var order = Aether.AutoOrder(past).Select(p => p.Name).ToList();
+            Check(order[0] == "MASQUE" && order[1] == "WireGuard" && order[^1] == "MASQUE-in-MASQUE"
+                && order.Count == Aether.AutoPresets.Length, "Auto tries fastest first, failed last");
+            var saved = Aether.ParseConnectMs(Aether.FormatConnectMs(past) + ",999:5,x:1,3");
+            Check(saved.Count == 3 && saved[Index("MASQUE")] == 3000 && saved[Index("MASQUE-in-MASQUE")] == -1, "Connect times round-trip, junk dropped");
+        }
         Check(Aether.ParseVersion("v2.4.0") == new Version(2, 4, 0) && Aether.ParseVersion("aether 2.3.0\n") == new Version(2, 3, 0), "Release tag and core output parse");
         Check(Aether.ParseVersion("1.0.0.0") == Aether.ParseVersion("v1.0.0") && Aether.ParseVersion("nightly") is null, "Version compare ignores the fourth part");
         Check(new Aether.Updates(new Version(2, 3, 0), new Version(2, 4, 0), null, null).CoreNewer

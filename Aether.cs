@@ -63,6 +63,24 @@ static class Aether
 
     public static readonly Preset[] AutoPresets = Presets.Where(p => !p.ManualOnly).ToArray();
 
+    // Auto order from past connects (preset index -> ms to connect, -1 = failed last time):
+    // fastest first, then never tried, then failed; ties shuffled (OrderBy is stable).
+    public static List<Preset> AutoOrder(IReadOnlyDictionary<int, int> connectMs) => AutoPresets
+        .OrderBy(_ => Random.Shared.Next())
+        .OrderBy(p => connectMs.TryGetValue(Array.IndexOf(Presets, p), out var ms) ? (ms < 0 ? int.MaxValue : ms) : FastSecs * 1000)
+        .ToList();
+
+    // Saved as "0:4200,8:-1"; unknown or malformed entries are dropped.
+    public static Dictionary<int, int> ParseConnectMs(string? text) =>
+        (text ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(e => e.Split(':'))
+            .Where(kv => kv.Length == 2 && int.TryParse(kv[0], out var i) && i >= 0 && i < Presets.Length && int.TryParse(kv[1], out _))
+            .GroupBy(kv => int.Parse(kv[0]))
+            .ToDictionary(g => g.Key, g => int.Parse(g.Last()[1]));
+
+    public static string FormatConnectMs(IReadOnlyDictionary<int, int> connectMs) =>
+        string.Join(",", connectMs.Select(kv => $"{kv.Key}:{kv.Value}"));
+
     // A real request through aether's SOCKS5 proxy measures the real delay.
     private static readonly HttpClient Http = new(new SocketsHttpHandler { Proxy = new WebProxy($"socks5://127.0.0.1:{SocksPort}") })
     { Timeout = TimeSpan.FromSeconds(3) };

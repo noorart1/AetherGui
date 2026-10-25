@@ -13,6 +13,7 @@ public partial class Form1 : Form
     private CoreOptions _coreOptions = new();
     private readonly int[] _protocolIndexes = [-1, .. Aether.MenuPresetIndexes];
     private static readonly string[] ScanModes = ["turbo", "balanced"]; // saved as an index into this
+    private Dictionary<int, int> _connectMs = []; // preset index -> ms its last connect took, -1 = failed; orders Auto
 
     public Form1()
     {
@@ -27,6 +28,7 @@ public partial class Form1 : Form
             var saved = key?.GetValue("Protocol") is int i && i >= 0 && i <= Aether.Presets.Length ? i : 0;
             cboProtocol.SelectedIndex = Array.IndexOf(_protocolIndexes, saved - 1);
             cboScan.SelectedIndex = key?.GetValue("Scan") is 1 ? 1 : 0;
+            _connectMs = Aether.ParseConnectMs(key?.GetValue("ConnectMs") as string);
         }
         try { _coreOptions = CoreOptions.Load(); }
         catch { chkStartup.Checked = false; Log("Could not load core settings. Review settings before connecting."); }
@@ -52,7 +54,7 @@ public partial class Form1 : Form
 
     private static void SaveSetting(string name, bool value) => SaveSetting(name, value ? 1 : 0);
 
-    private static void SaveSetting(string name, int value)
+    private static void SaveSetting(string name, object value)
     {
         using var key = Registry.CurrentUser.CreateSubKey(SettingsKey);
         key.SetValue(name, value);
@@ -77,7 +79,7 @@ public partial class Form1 : Form
         btnConnect.AccessibleName = "Connect securely";
     }
 
-    // Auto: try the fast presets in random order; one that times out or drops is not retried until all others were tried.
+    // Auto: try the fast presets, fastest past connect first; one that times out or drops is not retried until all others were tried.
     // A chosen preset (including the slow manual-only ones) is simply retried.
     private async Task RunAsync(CancellationToken ct)
     {
@@ -90,9 +92,9 @@ public partial class Form1 : Form
             if (!await Aether.EnsureInstalledAsync(Log, ct)) return;
             while (true)
             {
-                if (untried.Count == 0) untried.AddRange(chosen < 0 ? Aether.AutoPresets : [Aether.Presets[chosen]]);
-                var p = untried[Random.Shared.Next(untried.Count)];
-                untried.Remove(p);
+                if (untried.Count == 0) untried.AddRange(chosen < 0 ? Aether.AutoOrder(_connectMs) : [Aether.Presets[chosen]]);
+                var p = untried[0];
+                untried.RemoveAt(0);
                 await ConnectAndMonitorAsync(p, scan, ct);
                 await Task.Delay(1000, ct);
             }
@@ -114,8 +116,11 @@ public partial class Form1 : Form
         var proc = _process = Aether.Start(p, Log, _coreOptions, scan);
         if (proc is null) return;
 
+        var took = Stopwatch.StartNew();
         var ms = await Aether.WaitConnectedAsync(proc,
             _coreOptions.IsConfigured ? _coreOptions.StartupSeconds : p.StartupSecs, ct);
+        _connectMs[Array.IndexOf(Aether.Presets, p)] = ms is null ? -1 : (int)took.ElapsedMilliseconds;
+        SaveSetting("ConnectMs", Aether.FormatConnectMs(_connectMs));
         if (ms is null)
         {
             Log(proc.HasExited ? $"{p.Name}: process exited." : $"{p.Name}: no internet, switching.");
@@ -125,7 +130,7 @@ public partial class Form1 : Form
 
         if (chkSysProxy.Checked) SystemProxy.Enable();
         SetStatus($"Connected: {p.Name}", Palette.Connected);
-        Log($"Connected via {p.Name}, delay {ms} ms.");
+        Log($"Connected via {p.Name} in {took.Elapsed.TotalSeconds:0.0}s, delay {ms} ms.");
         for (int fails = 0; fails < 2;)
         {
             lblDelay.Text = ms is null ? "Delay: timeout" : $"Delay: {ms} ms";
