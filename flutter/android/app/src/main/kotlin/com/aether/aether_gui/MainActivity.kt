@@ -3,6 +3,7 @@ package com.aether.aether_gui
 import android.content.Intent
 import android.net.Uri
 import android.net.VpnService
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -17,6 +18,11 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "dirs" -> result.success(listOf(applicationInfo.nativeLibraryDir, filesDir.path))
                 "appVersion" -> result.success(packageManager.getPackageInfo(packageName, 0).versionName)
+                // Kill switch lives in Android: Always-on VPN + Block connections without VPN.
+                "vpnSettings" -> {
+                    startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
+                    result.success(null)
+                }
                 "openUrl" -> {
                     startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(call.arguments as String)))
                     result.success(null)

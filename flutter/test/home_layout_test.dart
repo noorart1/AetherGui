@@ -11,7 +11,9 @@ void main() {
     const Size(844, 390),
     const Size(1200, 800),
   ]) {
-    testWidgets('log stays visible and settings open at $size', (tester) async {
+    testWidgets('home stays simple and settings hold the rest at $size', (
+      tester,
+    ) async {
       final dir = Directory.systemTemp.createTempSync('aether-layout-');
       Aether.dir = dir.path;
       Aether.exe = '${dir.path}/missing-core';
@@ -23,8 +25,20 @@ void main() {
         dir.deleteSync(recursive: true);
       });
       await tester.pumpWidget(
-        MaterialApp(theme: ThemeData.dark(), home: const HomePage()),
+        MaterialApp(theme: Palette.theme, home: const HomePage()),
       );
+      await tester.pumpAndSettle();
+
+      // Home: the round button, quick settings and the status banner; nothing technical.
+      expect(find.text('Tap to Connect'), findsOneWidget);
+      expect(find.text('Auto - fastest route'), findsOneWidget);
+      expect(find.text('You are not protected'), findsOneWidget);
+      expect(find.byType(DropdownMenu<int>), findsNothing);
+      expect(find.text('Waiting for logs...'), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      // Settings: protocol list in stable order, the log, and core settings.
+      await tester.tap(find.byTooltip('Settings'));
       await tester.pumpAndSettle();
       final menu = tester.widget<DropdownMenu<int>>(
         find.byType(DropdownMenu<int>),
@@ -40,12 +54,20 @@ void main() {
       for (final entry in entries.skip(1)) {
         expect(entry.label, Aether.presets[entry.value].label);
       }
-      final log = find.text('Waiting for logs...');
-      expect(log, findsOneWidget);
-      expect(tester.getRect(log).bottom, lessThan(size.height));
-      expect(find.text('Show log'), findsNothing);
+      await tester.scrollUntilVisible(
+        find.text('Waiting for logs...'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Waiting for logs...'), findsOneWidget);
       expect(tester.takeException(), isNull);
-      await tester.tap(find.byTooltip('Core settings'));
+
+      await tester.scrollUntilVisible(
+        find.text('Core settings'),
+        -200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Core settings'));
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         find.text('Additional arguments (JSON array)'),

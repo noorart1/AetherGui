@@ -163,6 +163,7 @@ class Aether {
   static const guiRepo = 'noorart1/AetherGui';
   static Future<String?> appVersion() => _ch.invokeMethod<String>('appVersion');
   static Future<void> openUrl(String url) => _ch.invokeMethod('openUrl', url);
+  static Future<void> vpnSettings() => _ch.invokeMethod('vpnSettings');
 
   // "v1.2.0" or "1.2.0+3" -> [1, 2, 0]; null if it is not a version.
   static List<int>? parseVersion(String? s) {

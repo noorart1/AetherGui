@@ -184,7 +184,7 @@ public partial class Form1 : Form
         if (u.CoreNewer)
         {
             Log($"Core {u.LatestCore} is available (you have {u.Core?.ToString() ?? "none"}).", Color.Blue);
-            if (!interactive) Log("Click 'Check for updates' to install it.");
+            if (!interactive) Log("Click 'Updates' to install it.");
             else if (_cts != null) Log("Disconnect first to update the core.");
             else if (MessageBox.Show(this, $"Update the core to {u.LatestCore}?", "Update available",
                          MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)

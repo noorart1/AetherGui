@@ -14,19 +14,44 @@ Future<void> main() async {
     MaterialApp(
       title: 'Aether VPN',
       debugShowCheckedModeBanner: false,
-      // Platform defaults: Material light/dark following the system setting.
-      theme: ThemeData(),
-      darkTheme: ThemeData(brightness: Brightness.dark),
+      theme: Palette.theme,
       home: const HomePage(),
     ),
   );
 }
 
-// Status colors only; everything else uses the default theme.
+// One place for every color, and the dark theme built from them.
 abstract final class Palette {
-  static const connected = Colors.green;
-  static const connecting = Colors.orange;
-  static const disconnected = Colors.red;
+  static const background = Color(0xFF121212);
+  static const surface = Color(0xFF1E1E1E);
+  static const accent = Color(0xFFB585FF); // neon purple
+  static const secondaryText = Color(0xFF9E9E9E);
+  static const connected = Color(0xFF4ADE80); // neon green
+  static const connecting = Color(0xFFFBBF24);
+  static const disconnected = Color(0xFFF87171); // muted coral
+
+  static final theme = ThemeData(
+    brightness: Brightness.dark,
+    scaffoldBackgroundColor: background,
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: accent,
+      brightness: Brightness.dark,
+    ).copyWith(primary: accent, surface: background),
+    appBarTheme: const AppBarTheme(
+      backgroundColor: background,
+      surfaceTintColor: Colors.transparent,
+    ),
+    cardTheme: CardThemeData(
+      color: surface,
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+    ),
+    listTileTheme: const ListTileThemeData(
+      contentPadding: EdgeInsets.zero,
+      subtitleTextStyle: TextStyle(color: secondaryText, fontSize: 13),
+    ),
+  );
 }
 
 class HomePage extends StatefulWidget {
@@ -50,7 +75,9 @@ class _HomePageState extends State<HomePage> {
   String _scan = 'turbo'; // AETHER_SCAN: turbo or balanced
   String _status = 'Disconnected';
   Color _statusColor = red;
-  String _delay = 'Delay: -';
+  String _delay = ''; // e.g. '24 ms', shown in the button while connected
+  String? _route; // preset being tried or used right now
+  final _changes = ValueNotifier(0); // tells an open Settings page to rebuild
   final _lines = <(String, Color?)>[];
   final _scroll = ScrollController();
   final _rng = Random();
@@ -91,6 +118,7 @@ class _HomePageState extends State<HomePage> {
     _ct?.cancel();
     _killProcess();
     _scroll.dispose();
+    _changes.dispose();
     super.dispose();
   }
 
@@ -134,13 +162,15 @@ class _HomePageState extends State<HomePage> {
       Aether.vpnStop();
       _killProcess();
       _setStatus('Disconnected', red);
-      _setDelay('Delay: -');
+      _setDelay('');
+      _route = null;
     }
   }
 
   // Returns when the preset fails to connect within the timeout, or after a connected session drops.
   Future<void> _connectAndMonitor(Preset p, Cancel ct) async {
     _log('Trying ${p.name}...');
+    _route = p.name;
     _setStatus('Connecting: ${p.name}', orange);
     final proc = _process = await Aether.start(p, _log, _coreOptions, _scan);
     if (proc == null) return;
@@ -168,7 +198,7 @@ class _HomePageState extends State<HomePage> {
           : 'VPN permission denied: proxy only.',
     );
     for (var fails = 0; fails < 2;) {
-      _setDelay(ms == null ? 'Delay: timeout' : 'Delay: $ms ms');
+      _setDelay(ms == null ? 'timeout' : '$ms ms');
       await ct.delay(5000);
       if (proc.exited) break;
       ms = await Aether.ping(ct);
@@ -296,7 +326,7 @@ class _HomePageState extends State<HomePage> {
       info,
     );
     _log(
-      'aether: ${_process != null && !_process!.exited ? 'running' : 'stopped'} | $_status | $_delay',
+      'aether: ${_process != null && !_process!.exited ? 'running' : 'stopped'} | $_status | delay $_delay',
       info,
     );
     _log('Presets: ${Aether.presets.map((p) => p.name).join(', ')}', info);
@@ -335,6 +365,12 @@ class _HomePageState extends State<HomePage> {
     if (mounted) setState(() => _delay = text);
   }
 
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    _changes.value++;
+  }
+
   void _log(String msg, [Color? color]) {
     if (!mounted) return;
     final t = DateTime.now().toIso8601String().substring(11, 19);
@@ -344,277 +380,364 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  // Color is never the only signal: each state also has its own icon and text.
-  IconData get _statusIcon => switch (_statusColor) {
-    seaGreen => Icons.check_circle,
-    orange => Icons.autorenew,
-    _ => Icons.cancel,
-  };
+  void _openSettings() => Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => ListenableBuilder(
+        listenable: _changes,
+        builder: (context, _) => _settingsPage(context),
+      ),
+    ),
+  );
+
+  // ---------- Home ----------
 
   @override
   Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
     final busy = _ct != null;
-    final connecting = busy && _statusColor == orange;
-    final reduceMotion = MediaQuery.disableAnimationsOf(context);
-
-    final controls = Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Scaffold(
+      appBar: AppBar(
+        toolbarHeight: 72,
+        title: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                const Icon(Icons.shield_outlined),
-                const SizedBox(width: 12),
-                Expanded(
+            Text('Aether', style: TextStyle(fontWeight: FontWeight.w700)),
+            Text(
+              'Private Network Client',
+              style: TextStyle(fontSize: 12, color: Palette.secondaryText),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Settings',
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: _openSettings,
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 16),
+                  Center(child: _powerButton(busy)),
+                  const SizedBox(height: 24),
+                  _routeLine(busy),
+                  const SizedBox(height: 32),
+                  _quickSettings(),
+                  const SizedBox(height: 16),
+                  _statusBanner(busy),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // The big round button: red when off, amber with a spinning ring while connecting, green when on.
+  // Color is never the only signal: each state also has its own icon and text.
+  Widget _powerButton(bool busy) {
+    final connected = _statusColor == seaGreen;
+    final connecting = busy && !connected;
+    final color = _statusColor;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final (icon, label, detail) = connected
+        ? (Icons.shield_rounded, 'Connected', _delay)
+        : connecting
+        ? (Icons.sync_rounded, 'Connecting...', 'Tap to cancel')
+        : (Icons.power_settings_new_rounded, 'Tap to Connect', '');
+    return Semantics(
+      button: true,
+      label: busy ? 'Disconnect' : 'Connect',
+      child: SizedBox.square(
+        dimension: 228,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            if (connecting)
+              SizedBox.expand(
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  color: color,
+                  value: reduceMotion ? 1 : null,
+                ),
+              ),
+            AnimatedContainer(
+              duration: reduceMotion
+                  ? Duration.zero
+                  : const Duration(milliseconds: 300),
+              width: 200,
+              height: 200,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Palette.surface,
+                border: Border.all(color: color, width: 3),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.35),
+                    blurRadius: 40,
+                    spreadRadius: 4,
+                  ),
+                ],
+              ),
+              child: Material(
+                type: MaterialType.transparency,
+                shape: const CircleBorder(),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: _connect,
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
+                      Icon(icon, size: 64, color: color),
+                      const SizedBox(height: 12),
                       Text(
-                        'Secure connection',
-                        style: text.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
+                        label,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                      Text(
-                        busy
-                            ? 'Tap the power button to disconnect'
-                            : 'Choose a route, then connect',
-                        style: text.bodySmall,
-                      ),
+                      if (detail.isNotEmpty)
+                        Text(
+                          detail,
+                          style: const TextStyle(color: Palette.secondaryText),
+                        ),
                     ],
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: _connect,
-              icon: const Icon(Icons.power_settings_new),
-              label: Text(busy ? 'Disconnect' : 'Connect'),
-            ),
-            // progress bar while a protocol is being tried; static under reduced motion
-            if (connecting)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: LinearProgressIndicator(value: reduceMotion ? 1 : null),
               ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ExcludeSemantics(
-                  child: Icon(_statusIcon, color: _statusColor, size: 22),
-                ),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    _status,
-                    style: text.titleLarge?.copyWith(color: _statusColor),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(_delay, textAlign: TextAlign.center, style: text.bodyMedium),
-            const SizedBox(height: 28),
-            DropdownMenu<int>(
-              label: const Text('Protocol'),
-              leadingIcon: const Icon(Icons.vpn_lock),
-              expandedInsets: EdgeInsets.zero,
-              enabled: !busy, // pick before connecting; Disconnect to change
-              initialSelection: _preset,
-              dropdownMenuEntries: [
-                const DropdownMenuEntry(
-                  value: -1,
-                  label: 'Auto (fast protocols)',
-                ),
-                // Keep persisted values stable while displaying fast presets first.
-                for (final manualOnly in [false, true])
-                  for (final (i, p) in Aether.presets.indexed)
-                    if (p.manualOnly == manualOnly)
-                      DropdownMenuEntry(value: i, label: p.label),
-              ],
-              onSelected: (v) {
-                setState(() => _preset = v ?? -1);
-                _saveSettings();
-              },
-            ),
-            const SizedBox(height: 16),
-            Text('Server search', style: text.titleSmall),
-            const SizedBox(height: 8),
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(
-                  value: 'turbo',
-                  label: Text('Fast'),
-                  tooltip: 'First server that answers',
-                ),
-                ButtonSegment(
-                  value: 'balanced',
-                  label: Text('Balanced'),
-                  tooltip: 'Tries a few servers, keeps the fastest',
-                ),
-              ],
-              selected: {_scan},
-              onSelectionChanged: busy
-                  ? null
-                  : (v) {
-                      setState(() => _scan = v.first);
-                      _saveSettings();
-                    },
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              secondary: const Icon(Icons.bolt_outlined),
-              title: const Text('Connect on startup'),
-              subtitle: const Text(
-                'Start the VPN automatically when Aether opens',
-              ),
-              value: _autoConnect,
-              onChanged: (v) {
-                setState(() => _autoConnect = v);
-                _saveSettings();
-              },
             ),
           ],
         ),
       ),
     );
+  }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Aether'),
-            Text('Private network client', style: TextStyle(fontSize: 12)),
-          ],
+  // Which route is used: the one running now, else the saved choice. Change opens Settings.
+  Widget _routeLine(bool busy) {
+    final route =
+        _route ??
+        (_preset < 0 ? 'Auto - fastest route' : Aether.presets[_preset].name);
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Icon(Icons.bolt_rounded, size: 20, color: Palette.accent),
+        const SizedBox(width: 8),
+        Flexible(child: Text(route, overflow: TextOverflow.ellipsis)),
+        TextButton(
+          onPressed: busy ? null : _openSettings,
+          child: const Text('Change'),
         ),
-        actions: [
-          IconButton(
-            tooltip: 'Core settings',
-            icon: const Icon(Icons.tune),
-            onPressed: busy ? null : _showCoreSettings,
+      ],
+    );
+  }
+
+  Widget _quickSettings() => Card(
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Quick Settings',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           ),
-          IconButton(
-            tooltip: 'Core input',
-            icon: const Icon(Icons.keyboard),
-            onPressed: busy ? _sendCoreInput : null,
+          const SizedBox(height: 8),
+          SwitchListTile(
+            secondary: const Icon(Icons.bolt_outlined),
+            title: const Text('Auto-Connect on Startup'),
+            value: _autoConnect,
+            onChanged: (v) {
+              setState(() => _autoConnect = v);
+              _saveSettings();
+            },
           ),
-          IconButton(
-            tooltip: 'Proxy info',
-            icon: const Icon(Icons.info_outline),
-            onPressed: _showProxyInfo,
-          ),
-          IconButton(
-            tooltip: 'Check for updates',
-            icon: const Icon(Icons.system_update),
-            onPressed: () => _checkUpdates(interactive: true),
+          // Android, not the app, can block traffic while the VPN is down, so this opens its setting.
+          const ListTile(
+            leading: Icon(Icons.block_rounded),
+            title: Text('Kill Switch'),
+            subtitle: Text(
+              'Turn on "Always-on VPN" and "Block connections without VPN"',
+            ),
+            trailing: Icon(Icons.open_in_new_rounded, size: 20),
+            onTap: Aether.vpnSettings,
           ),
         ],
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              // Keep the log in the viewport, even on short screens or with
-              // large text. Only the controls scroll when they do not fit.
-              final controlPane = SingleChildScrollView(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: controls,
-              );
-              final logPane = Card(
-                clipBehavior: Clip.antiAlias,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.terminal, size: 20),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Activity',
-                              style: text.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Clear activity',
-                            onPressed: _lines.isEmpty
-                                ? null
-                                : () => setState(_lines.clear),
-                            icon: const Icon(Icons.delete_outline),
-                          ),
-                        ],
-                      ),
+    ),
+  );
+
+  Widget _statusBanner(bool busy) {
+    final connected = _statusColor == seaGreen;
+    final (icon, text, color) = connected
+        ? (Icons.check_circle_rounded, 'Your connection is secure', seaGreen)
+        : busy
+        ? (Icons.sync_rounded, 'Connecting...', orange)
+        : (Icons.error_outline_rounded, 'You are not protected', red);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color),
+          const SizedBox(width: 12),
+          Expanded(child: Text(text)),
+        ],
+      ),
+    );
+  }
+
+  // ---------- Settings: everything technical lives here ----------
+
+  Widget _settingsPage(BuildContext context) {
+    final busy = _ct != null;
+    Widget section(String title) => Padding(
+      padding: const EdgeInsets.fromLTRB(4, 24, 4, 8),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: Palette.accent,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+    return Scaffold(
+      appBar: AppBar(title: const Text('Settings')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+        children: [
+          section('Connection'),
+          DropdownMenu<int>(
+            label: const Text('Protocol'),
+            leadingIcon: const Icon(Icons.vpn_lock_outlined),
+            expandedInsets: EdgeInsets.zero,
+            enabled: !busy, // pick before connecting; Disconnect to change
+            initialSelection: _preset,
+            dropdownMenuEntries: [
+              const DropdownMenuEntry(
+                value: -1,
+                label: 'Auto (fast protocols)',
+              ),
+              // Keep persisted values stable while displaying fast presets first.
+              for (final manualOnly in [false, true])
+                for (final (i, p) in Aether.presets.indexed)
+                  if (p.manualOnly == manualOnly)
+                    DropdownMenuEntry(value: i, label: p.label),
+            ],
+            onSelected: (v) {
+              setState(() => _preset = v ?? -1);
+              _saveSettings();
+            },
+          ),
+          const SizedBox(height: 16),
+          const Text('Server search'),
+          const SizedBox(height: 8),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(
+                value: 'turbo',
+                label: Text('Fast'),
+                tooltip: 'First server that answers',
+              ),
+              ButtonSegment(
+                value: 'balanced',
+                label: Text('Balanced'),
+                tooltip: 'Tries a few servers, keeps the fastest',
+              ),
+            ],
+            selected: {_scan},
+            onSelectionChanged: busy
+                ? null
+                : (v) {
+                    setState(() => _scan = v.first);
+                    _saveSettings();
+                  },
+          ),
+          section('Advanced'),
+          ListTile(
+            leading: const Icon(Icons.tune_rounded),
+            title: const Text('Core settings'),
+            enabled: !busy,
+            onTap: _showCoreSettings,
+          ),
+          ListTile(
+            leading: const Icon(Icons.keyboard_outlined),
+            title: const Text('Core input'),
+            subtitle: const Text('Send a sign-in code the core asks for'),
+            enabled: busy,
+            onTap: _sendCoreInput,
+          ),
+          ListTile(
+            leading: const Icon(Icons.info_outline_rounded),
+            title: const Text('Proxy info'),
+            onTap: _showProxyInfo,
+          ),
+          ListTile(
+            leading: const Icon(Icons.system_update_outlined),
+            title: const Text('Check for updates'),
+            onTap: () => _checkUpdates(interactive: true),
+          ),
+          section('Activity'),
+          Card(
+            clipBehavior: Clip.antiAlias,
+            child: SizedBox(
+              height: 320,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: IconButton(
+                      tooltip: 'Clear activity',
+                      onPressed: _lines.isEmpty
+                          ? null
+                          : () => setState(_lines.clear),
+                      icon: const Icon(Icons.delete_outline_rounded),
                     ),
-                    const Divider(height: 1),
-                    Expanded(
-                      child: SelectionArea(
-                        child: ListView.builder(
-                          controller: _scroll,
-                          padding: const EdgeInsets.all(16),
-                          itemCount: _lines.isEmpty ? 1 : _lines.length,
-                          itemBuilder: (_, i) => Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: Text(
-                              _lines.isEmpty
-                                  ? 'Waiting for logs...'
-                                  : _lines[i].$1,
-                              style: TextStyle(
-                                color: _lines.isEmpty ? null : _lines[i].$2,
-                                fontFamily: 'monospace',
-                                fontSize: 12,
-                                height: 1.45,
-                              ),
+                  ),
+                  Expanded(
+                    child: SelectionArea(
+                      child: ListView.builder(
+                        controller: _scroll,
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        itemCount: _lines.isEmpty ? 1 : _lines.length,
+                        itemBuilder: (_, i) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            _lines.isEmpty
+                                ? 'Waiting for logs...'
+                                : _lines[i].$1,
+                            style: TextStyle(
+                              color: _lines.isEmpty
+                                  ? Palette.secondaryText
+                                  : _lines[i].$2 ?? Palette.secondaryText,
+                              fontFamily: 'monospace',
+                              fontSize: 12,
+                              height: 1.45,
                             ),
                           ),
                         ),
                       ),
                     ),
-                  ],
-                ),
-              );
-
-              if (constraints.maxWidth >= 600) {
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SizedBox(
-                      width: min(360.0, constraints.maxWidth * 0.45),
-                      child: controlPane,
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(child: logPane),
-                  ],
-                );
-              }
-
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxHeight: constraints.maxHeight * 0.62,
-                    ),
-                    child: controlPane,
                   ),
-                  const SizedBox(height: 12),
-                  Expanded(child: logPane),
                 ],
-              );
-            },
+              ),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

@@ -65,6 +65,24 @@ static class Checks
         catch (FormatException) { classicRejected = true; }
         Check(classicRejected, "Classic gool cannot override selected protocol");
         ApplicationConfiguration.Initialize();
+        // Larger text stands in for 125-200% display scaling: the left panel must grow with it, never slide under the log.
+        static IEnumerable<Control> All(Control c) => c.Controls.Cast<Control>().SelectMany(x => All(x).Prepend(x));
+        static Rectangle InForm(Control c) // bounds in form client coordinates, without needing a shown window
+        {
+            var r = c.Bounds;
+            for (var p = c.Parent; p is not null and not Form; p = p.Parent) r.Offset(p.Location);
+            return r;
+        }
+        foreach (var scale in new[] { 1f, 1.5f, 2f })
+        {
+            using var main = new Form1();
+            main.Font = new Font(main.Font.FontFamily, 9f * scale);
+            main.Size = main.MinimumSize;
+            main.PerformLayout();
+            var connect = InForm(All(main).OfType<Button>().First(b => b.Text == "Connect securely"));
+            var boxes = new[] { "connectionPanel", "activityPanel" }.Select(n => InForm(main.Controls.Find(n, true)[0])).ToArray();
+            Check(boxes[0].Contains(connect) && !connect.IntersectsWith(boxes[1]), $"Connect button inside its panel at {scale:0.#}x text");
+        }
         using var settings = new CoreSettingsForm(new());
         foreach (var size in new[] { new Size(520, 460), new Size(800, 650), new Size(1200, 800) })
         {
