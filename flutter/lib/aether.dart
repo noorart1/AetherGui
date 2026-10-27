@@ -55,8 +55,21 @@ class Aether {
   static const testUrl = 'http://www.gstatic.com/generate_204';
   static const connectTimeoutMs =
       10000; // after the proxy is up, the internet test must pass within this
-  static const httpPort = 1819; // HTTP proxy: point Wi-Fi proxy / apps here
-  static const socksPort = 1818; // SOCKS5, free for apps that support it
+  static const defaultHttpPort = 1819, defaultSocksPort = 1818;
+  static var httpPort =
+      defaultHttpPort; // HTTP proxy: point Wi-Fi proxy / apps here
+  static var socksPort =
+      defaultSocksPort; // SOCKS5, free for apps that support it
+  static const _internalPort =
+      1822; // forward modes' WARP listener, see launchArguments
+
+  // Why a typed port can't be used, or null if it can.
+  static String? portError(String text, int other) {
+    final p = int.tryParse(text);
+    if (p == null || p < 1024 || p > 65535) return '1024 to 65535';
+    if (p == other || p == _internalPort) return 'Port $p is already used';
+    return null;
+  }
 
   static const _warp = '--turbo -4 --quick-reconnect';
   static const fastSecs =
@@ -159,6 +172,8 @@ class Aether {
   static Future<bool> vpnStart() async =>
       await _ch.invokeMethod<bool>('vpnStart', socksPort) ?? false;
   static Future<void> vpnStop() => _ch.invokeMethod('vpnStop');
+  // Proxy mode: the same service without a tun, only so Android keeps the app alive in the background.
+  static Future<void> keepAlive() => _ch.invokeMethod('keepAlive');
 
   static const guiRepo = 'noorart1/AetherGui';
   static Future<String?> appVersion() => _ch.invokeMethod<String>('appVersion');
@@ -249,7 +264,8 @@ class Aether {
       if (p.args.contains('--psiphon')) ...['--psiphon-bin', psiphon],
       // Forward modes have TWO listeners: the VPN and latency test must use
       // the second (Tor/Psiphon) exit, not silently stay on the WARP exit.
-      '--bind', '127.0.0.1:${torExit || psiphonExit ? 1822 : socksPort}',
+      '--bind',
+      '127.0.0.1:${torExit || psiphonExit ? _internalPort : socksPort}',
       if (torExit) ...['--tor-bind', '127.0.0.1:$socksPort'],
       if (psiphonExit) ...['--psiphon-bind', '127.0.0.1:$socksPort'],
       p.httpFlag, '127.0.0.1:$httpPort',

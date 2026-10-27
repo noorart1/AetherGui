@@ -37,6 +37,10 @@ class MainActivity : FlutterActivity() {
                         startActivityForResult(consent, VPN_CONSENT)
                     }
                 }
+                "keepAlive" -> {
+                    startService(Intent(this, AetherVpn::class.java).setAction(AetherVpn.KEEP_ALIVE))
+                    result.success(null)
+                }
                 "vpnStop" -> {
                     startService(Intent(this, AetherVpn::class.java).setAction(AetherVpn.STOP))
                     result.success(null)

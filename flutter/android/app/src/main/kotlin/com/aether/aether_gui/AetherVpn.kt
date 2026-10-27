@@ -1,5 +1,9 @@
 package com.aether.aether_gui
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
@@ -18,6 +22,20 @@ class AetherVpn : VpnService() {
             stopSelf()
             return START_NOT_STICKY
         }
+        // Foreground keeps the whole process (aether child + Dart monitor) alive when the app is backgrounded or the screen locks.
+        getSystemService(NotificationManager::class.java)
+            .createNotificationChannel(NotificationChannel("vpn", "VPN", NotificationManager.IMPORTANCE_LOW))
+        startForeground(
+            1,
+            Notification.Builder(this, "vpn")
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentTitle("Aether is running")
+                .setContentIntent(PendingIntent.getActivity(this, 0,
+                    Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
+                .setOngoing(true)
+                .build(),
+        )
+        if (intent?.action == KEEP_ALIVE) return START_NOT_STICKY // proxy mode: no tun, just stay alive
         val port = intent?.getIntExtra("port", 1818) ?: 1818
         val t = Builder()
             .setSession("Aether VPN")
@@ -72,6 +90,7 @@ class AetherVpn : VpnService() {
 
     companion object {
         const val STOP = "stop"
+        const val KEEP_ALIVE = "keepAlive"
         const val MTU = 8500
         const val DNS = "198.18.0.2"
 

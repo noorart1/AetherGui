@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'aether.dart';
 import 'core_options.dart';
@@ -72,6 +73,7 @@ class _HomePageState extends State<HomePage> {
   CoreOptions _coreOptions = const CoreOptions();
   int _preset = -1; // index into Aether.presets, -1 = Auto (rotate through all)
   String _scan = 'turbo'; // AETHER_SCAN: turbo or balanced
+  bool _vpn = true; // full-device VPN (tun); false = only serve the local proxy
   String _status = 'Disconnected';
   Color _statusColor = red;
   String _delay = ''; // e.g. '24 ms', shown in the button while connected
@@ -79,6 +81,8 @@ class _HomePageState extends State<HomePage> {
   final _changes = ValueNotifier(0); // tells an open Settings page to rebuild
   final _lines = <(String, Color?)>[];
   final _scroll = ScrollController();
+  final _httpPortText = TextEditingController(),
+      _socksPortText = TextEditingController();
   // preset index -> ms its last connect took, -1 = failed; orders Auto
   var _connectMs = <int, int>{};
 
@@ -97,6 +101,14 @@ class _HomePageState extends State<HomePage> {
           -1;
       _preset = i >= -1 && i < Aether.presets.length ? i : -1;
       if (s.contains('Scan=balanced')) _scan = 'balanced';
+      _vpn = !s.contains('Mode=proxy');
+      final http = RegExp(r'HttpPort=(\d+)').firstMatch(s)?.group(1) ?? '';
+      final socks = RegExp(r'SocksPort=(\d+)').firstMatch(s)?.group(1) ?? '';
+      if (Aether.portError(http, int.tryParse(socks) ?? 0) == null &&
+          Aether.portError(socks, int.parse(http)) == null) {
+        Aether.httpPort = int.parse(http);
+        Aether.socksPort = int.parse(socks);
+      }
       _connectMs = Aether.parseConnectMs(
         RegExp(r'ConnectMs=(.*)').firstMatch(s)?.group(1),
       );
@@ -107,6 +119,8 @@ class _HomePageState extends State<HomePage> {
       _autoConnect = false;
       _log('Could not load core settings. Review settings before connecting.');
     }
+    _httpPortText.text = '${Aether.httpPort}';
+    _socksPortText.text = '${Aether.socksPort}';
     _checkUpdates(interactive: false);
     if (_autoConnect) {
       _log('Auto-connecting in ${startupDelayMs ~/ 1000}s...');
@@ -121,6 +135,8 @@ class _HomePageState extends State<HomePage> {
     _ct?.cancel();
     _killProcess();
     _scroll.dispose();
+    _httpPortText.dispose();
+    _socksPortText.dispose();
     _changes.dispose();
     super.dispose();
   }
@@ -136,6 +152,8 @@ class _HomePageState extends State<HomePage> {
 
   void _saveSettings() => _settings.writeAsStringSync(
     'AutoConnect=${_autoConnect ? 1 : 0}\nPreset=$_preset\nScan=$_scan\n'
+    'Mode=${_vpn ? 'vpn' : 'proxy'}\n'
+    'HttpPort=${Aether.httpPort}\nSocksPort=${Aether.socksPort}\n'
     'ConnectMs=${Aether.formatConnectMs(_connectMs)}\n',
   );
 
@@ -146,6 +164,8 @@ class _HomePageState extends State<HomePage> {
     try {
       if (!File(Aether.exe).existsSync())
         return _log('aether binary missing: run fetch_aether.sh and rebuild.');
+      // Started now, while the app is in front: Android refuses to start services from the background.
+      if (!_vpn) await Aether.keepAlive();
       while (true) {
         if (untried.isEmpty) {
           untried.addAll(
@@ -201,7 +221,9 @@ class _HomePageState extends State<HomePage> {
       'Connected via ${p.name} in ${(took.elapsedMilliseconds / 1000).toStringAsFixed(1)}s, delay $ms ms.',
     );
     _log(
-      await Aether.vpnStart()
+      !_vpn
+          ? 'Proxy only: HTTP 127.0.0.1:${Aether.httpPort}, SOCKS5 127.0.0.1:${Aether.socksPort}.'
+          : await Aether.vpnStart()
           ? 'VPN on: all apps go through aether.'
           : 'VPN permission denied: proxy only.',
     );
@@ -439,6 +461,7 @@ class _HomePageState extends State<HomePage> {
                   const SizedBox(height: 24),
                   _routeLine(busy),
                   const SizedBox(height: 32),
+                  if (!_vpn) ...[_proxyCard(), const SizedBox(height: 16)],
                   _quickSettings(),
                   const SizedBox(height: 16),
                   _statusBanner(busy),
@@ -550,6 +573,50 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  // Proxy mode: nothing is routed for the user, so show where to point apps, ready to copy.
+  Widget _proxyCard() {
+    Widget row(String name, int port, String hint) => ListTile(
+      leading: const Icon(Icons.lan_outlined),
+      title: Text('$name  127.0.0.1:$port'),
+      subtitle: Text(hint),
+      trailing: IconButton(
+        tooltip: 'Copy $name address',
+        icon: const Icon(Icons.copy_rounded, size: 20),
+        onPressed: () {
+          Clipboard.setData(ClipboardData(text: '127.0.0.1:$port'));
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Copied 127.0.0.1:$port')));
+        },
+      ),
+    );
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Proxy address',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Only apps set to this proxy use Aether. Wi-Fi: long-press your network > '
+              'Modify > Proxy: Manual > host 127.0.0.1, port ${Aether.httpPort}.',
+              style: const TextStyle(
+                color: Palette.secondaryText,
+                fontSize: 13,
+              ),
+            ),
+            row('HTTP', Aether.httpPort, 'Wi-Fi proxy, browsers'),
+            row('SOCKS5', Aether.socksPort, 'Telegram and apps with SOCKS'),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _quickSettings() => Card(
     child: Padding(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
@@ -609,6 +676,30 @@ class _HomePageState extends State<HomePage> {
   }
 
   // ---------- Settings: everything technical lives here ----------
+
+  // Saved only while valid; an invalid entry shows why and keeps the last good port.
+  Widget _portField(
+    String label,
+    TextEditingController text,
+    int Function() other,
+    void Function(int) set,
+    bool busy,
+  ) => TextField(
+    controller: text,
+    enabled: !busy,
+    keyboardType: TextInputType.number,
+    decoration: InputDecoration(
+      labelText: label,
+      errorText: Aether.portError(text.text, other()),
+    ),
+    onChanged: (v) {
+      if (Aether.portError(v, other()) == null) {
+        set(int.parse(v));
+        _saveSettings();
+      }
+      setState(() {});
+    },
+  );
 
   Widget _settingsPage(BuildContext context) {
     final busy = _ct != null;
@@ -674,6 +765,56 @@ class _HomePageState extends State<HomePage> {
                     _saveSettings();
                   },
           ),
+          const SizedBox(height: 16),
+          const Text('Mode'),
+          const SizedBox(height: 8),
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(
+                value: true,
+                label: Text('VPN (all apps)'),
+                tooltip: 'Full-device tunnel: every app goes through aether',
+              ),
+              ButtonSegment(
+                value: false,
+                label: Text('Proxy only'),
+                tooltip: 'No VPN: only apps set to the local proxy use aether',
+              ),
+            ],
+            selected: {_vpn},
+            onSelectionChanged: busy
+                ? null
+                : (v) {
+                    setState(() => _vpn = v.first);
+                    _saveSettings();
+                  },
+          ),
+          if (!_vpn) ...[
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _portField(
+                    'HTTP port',
+                    _httpPortText,
+                    () => Aether.socksPort,
+                    (p) => Aether.httpPort = p,
+                    busy,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _portField(
+                    'SOCKS5 port',
+                    _socksPortText,
+                    () => Aether.httpPort,
+                    (p) => Aether.socksPort = p,
+                    busy,
+                  ),
+                ),
+              ],
+            ),
+          ],
           section('Advanced'),
           ListTile(
             leading: const Icon(Icons.tune_rounded),
