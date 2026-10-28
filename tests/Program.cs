@@ -137,6 +137,18 @@ static class Checks
             var boxes = new[] { "connectionPanel", "activityPanel" }.Select(n => InForm(main.Controls.Find(n, true)[0])).ToArray();
             Check(boxes[0].Contains(connect) && !connect.IntersectsWith(boxes[1]), $"Connect button inside its panel at {scale:0.#}x text");
         }
+        {
+            // a b* c d* e  -Up->  b* a d* c e  -Up->  b* d* a c e  -Down x2->  a c b* d* e
+            using var list = new CheckedListBox();
+            foreach (var (s, on) in new[] { ("a", false), ("b", true), ("c", false), ("d", true), ("e", false) }) list.Items.Add(s, on);
+            string Show() => string.Join("", list.Items.Cast<string>().Select((s, i) => list.GetItemChecked(i) ? s + "*" : s));
+            CoreSettingsForm.MoveChecked(list, -1);
+            Check(Show() == "b*ad*ce", "Up moves every checked protocol");
+            CoreSettingsForm.MoveChecked(list, -1);
+            Check(Show() == "b*d*ace", "Checked block stops at the top");
+            CoreSettingsForm.MoveChecked(list, 1); CoreSettingsForm.MoveChecked(list, 1);
+            Check(Show() == "acb*d*e", "Down moves every checked protocol");
+        }
         using var settings = new CoreSettingsForm(new());
         foreach (var size in new[] { new Size(520, 460), new Size(800, 650), new Size(1200, 800) })
         {

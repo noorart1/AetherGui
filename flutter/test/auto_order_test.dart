@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:aether_gui/aether.dart';
+import 'package:aether_gui/auto_order_page.dart';
 
 void main() {
   int index(String name) => Aether.presets.indexWhere((p) => p.name == name);
@@ -34,6 +35,18 @@ void main() {
     expect(Aether.rerank([w, t, m], {...past, m: 2000}, m), [m, w, t]);
     expect(Aether.rerank([w, t, m], {...past, w: -1}, w), [t, m, w]);
     expect(Aether.rerank([w, t, m], past, index('MASQUE HTTP/2')), [w, t, m]);
+  });
+
+  test('arrows move every checked protocol together', () {
+    // 0 1* 2 3* 4  -up->  1* 0 3* 2 4  -up->  1* 3* 0 2 4  -down x2->  0 2 1* 3* 4
+    final items = [0, 1, 2, 3, 4], on = {1, 3};
+    moveChecked(items, on, -1);
+    expect(items, [1, 0, 3, 2, 4]);
+    moveChecked(items, on, -1);
+    expect(items, [1, 3, 0, 2, 4]);
+    moveChecked(items, on, 1);
+    moveChecked(items, on, 1);
+    expect(items, [0, 2, 1, 3, 4]);
   });
 
   test('connect times round-trip and junk is dropped', () {

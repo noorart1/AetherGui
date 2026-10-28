@@ -2,6 +2,19 @@ import 'package:flutter/material.dart';
 
 import 'aether.dart';
 
+// Every checked item steps one place up (-1) or down (+1) past an unchecked neighbour;
+// checked ones keep their own order.
+void moveChecked(List<int> items, Set<int> on, int delta) {
+  final n = items.length;
+  for (var k = 0; k < n; k++) {
+    final i = delta < 0 ? k : n - 1 - k, j = i + delta;
+    if (j < 0 || j >= n || !on.contains(items[i]) || on.contains(items[j])) {
+      continue;
+    }
+    items.insert(j, items.removeAt(i));
+  }
+}
+
 // Which protocols Auto tries, top first. The app keeps this order current after each connect;
 // the user may drag or uncheck any of them. Pops the checked preset indexes on Save.
 class AutoOrderPage extends StatefulWidget {
@@ -49,6 +62,16 @@ class _AutoOrderPageState extends State<AutoOrderPage> {
     appBar: AppBar(
       title: const Text('Auto order'),
       actions: [
+        IconButton(
+          tooltip: 'Move checked up',
+          icon: const Icon(Icons.arrow_upward_rounded),
+          onPressed: () => setState(() => moveChecked(_items, _on, -1)),
+        ),
+        IconButton(
+          tooltip: 'Move checked down',
+          icon: const Icon(Icons.arrow_downward_rounded),
+          onPressed: () => setState(() => moveChecked(_items, _on, 1)),
+        ),
         TextButton(
           onPressed: () => setState(() => _fill(widget.ranking)),
           child: const Text('Reset'),
@@ -63,7 +86,8 @@ class _AutoOrderPageState extends State<AutoOrderPage> {
           child: Text(
             'Auto tries the checked protocols from the top. After each try the app moves that '
             'protocol by its speed (to the bottom if it failed); your own moves stay otherwise. '
-            'Drag the handle to reorder. Reset restores the speed ranking.',
+            'Drag the handle to reorder, or use the arrows to move all checked protocols one step. '
+            'Reset restores the speed ranking.',
             style: TextStyle(fontSize: 13),
           ),
         ),

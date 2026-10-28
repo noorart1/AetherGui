@@ -96,7 +96,8 @@ sealed class CoreSettingsForm : Form
         moves.Controls.AddRange([MoveButton("Up", -1), MoveButton("Down", 1)]);
         var note = new Label { AutoSize = true, Dock = DockStyle.Fill, Text =
             "Auto tries the checked protocols from the top. After each try the app moves that protocol by its speed " +
-            "(to the bottom if it failed); your own moves stay otherwise. Reset fields restores the speed ranking." };
+            "(to the bottom if it failed); your own moves stay otherwise. Up/Down move all checked protocols one step. " +
+            "Reset fields restores the speed ranking." };
 
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -119,16 +120,23 @@ sealed class CoreSettingsForm : Form
 
     private Button MoveButton(string text, int delta)
     {
-        var button = new Button { Text = text, AutoSize = true, AccessibleName = $"Move selected protocol {text.ToLower()}" };
-        button.Click += (_, _) =>
-        {
-            int from = _order.SelectedIndex, to = from + delta;
-            if (from < 0 || to < 0 || to >= _order.Items.Count) return;
-            var item = _order.Items[from]; var on = _order.GetItemChecked(from);
-            _order.Items.RemoveAt(from); _order.Items.Insert(to, item);
-            _order.SetItemChecked(to, on); _order.SelectedIndex = to;
-        };
+        var button = new Button { Text = text, AutoSize = true, AccessibleName = $"Move checked protocols {text.ToLower()}" };
+        button.Click += (_, _) => MoveChecked(_order, delta);
         return button;
+    }
+
+    // Every checked item steps one place up (-1) or down (+1) past an unchecked neighbour; checked ones keep their own order.
+    public static void MoveChecked(CheckedListBox list, int delta)
+    {
+        int n = list.Items.Count;
+        for (int k = 0; k < n; k++)
+        {
+            int i = delta < 0 ? k : n - 1 - k, j = i + delta;
+            if (j < 0 || j >= n || !list.GetItemChecked(i) || list.GetItemChecked(j)) continue;
+            var item = list.Items[i];
+            list.Items.RemoveAt(i); list.Items.Insert(j, item);
+            list.SetItemChecked(j, true);
+        }
     }
 
     private void SaveOptions()
