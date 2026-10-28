@@ -35,10 +35,11 @@ static class Checks
             var args = info.ArgumentList.ToList();
             string Value(string flag) => args[args.IndexOf(flag) + 1];
             bool tor = preset.Args.Split(' ').Contains("--tor"), psiphon = preset.Args.Split(' ').Contains("--psiphon");
-            Check(Value("--bind") == (tor || psiphon ? "127.0.0.1:1822" : "127.0.0.1:1818"), preset.Name + " base listener");
-            Check(Value(preset.HttpFlag) == "127.0.0.1:1819", preset.Name + " HTTP exit");
-            if (tor) Check(Value("--tor-bind") == "127.0.0.1:1818", "Tor SOCKS exit");
-            if (psiphon) Check(Value("--psiphon-bind") == "127.0.0.1:1818", "Psiphon SOCKS exit");
+            string socks = $"127.0.0.1:{Aether.SocksPort}";
+            Check(Value("--bind") == (tor || psiphon ? "127.0.0.1:1822" : socks), preset.Name + " base listener");
+            Check(Value(preset.HttpFlag) == $"127.0.0.1:{Aether.HttpPort}", preset.Name + " HTTP exit");
+            if (tor) Check(Value("--tor-bind") == socks, "Tor SOCKS exit");
+            if (psiphon) Check(Value("--psiphon-bind") == socks, "Psiphon SOCKS exit");
             Check(info.Environment["AETHER_SCAN"] == "balanced" && !args.Contains("--turbo"), "Environment overrides defaults");
             Check(args.Contains(options.Arguments[1]) && !info.UseShellExecute, "No shell splitting");
         }
@@ -53,6 +54,8 @@ static class Checks
             var saved = Aether.ParseConnectMs(Aether.FormatConnectMs(past) + ",999:5,x:1,3");
             Check(saved.Count == 3 && saved[Index("MASQUE")] == 3000 && saved[Index("MASQUE-in-MASQUE")] == -1, "Connect times round-trip, junk dropped");
         }
+        Check(Aether.ValidPorts(8080, 1080) is null && Aether.ValidPorts(1819, 1819) is not null
+            && Aether.ValidPorts(1822, 1818) is not null && Aether.ValidPorts(80, 1818) is not null, "Custom ports validated");
         Check(Aether.ParseVersion("v2.4.0") == new Version(2, 4, 0) && Aether.ParseVersion("aether 2.3.0\n") == new Version(2, 3, 0), "Release tag and core output parse");
         Check(Aether.ParseVersion("1.0.0.0") == Aether.ParseVersion("v1.0.0") && Aether.ParseVersion("nightly") is null, "Version compare ignores the fourth part");
         Check(new Aether.Updates(new Version(2, 3, 0), new Version(2, 4, 0), null, null).CoreNewer

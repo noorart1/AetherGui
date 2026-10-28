@@ -49,7 +49,7 @@ public partial class Form1 : Form
             await Task.Delay(StartupDelayMs);
             if (chkStartup.Checked && _cts == null) btnConnect_Click(null, EventArgs.Empty);
         };
-        FormClosing += (_, _) => { _cts?.Cancel(); KillProcess(); SystemProxy.Disable(); };
+        FormClosing += (_, _) => { _cts?.Cancel(); KillProcess(); SystemProxy.Disable(); KillPsiphon(); };
     }
 
     private static void SaveSetting(string name, bool value) => SaveSetting(name, value ? 1 : 0);
@@ -131,6 +131,7 @@ public partial class Form1 : Form
         if (chkSysProxy.Checked) SystemProxy.Enable();
         SetStatus($"Connected: {p.Name}", Palette.Connected);
         Log($"Connected via {p.Name} in {took.Elapsed.TotalSeconds:0.0}s, delay {ms} ms.");
+        StartPsiphon();
         for (int fails = 0; fails < 2;)
         {
             lblDelay.Text = ms is null ? "Delay: timeout" : $"Delay: {ms} ms";
@@ -141,6 +142,23 @@ public partial class Form1 : Form
         }
         Log($"{p.Name}: connection lost, switching.");
         KillProcess();
+    }
+
+    // Opens psiphon3.exe from beside this exe once per connection; skipped if missing or already running.
+    private void StartPsiphon()
+    {
+        var exe = Path.Combine(AppContext.BaseDirectory, "psiphon3.exe");
+        if (!File.Exists(exe) || Process.GetProcessesByName("psiphon3").Length > 0) return;
+        try { Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true, WorkingDirectory = AppContext.BaseDirectory }); }
+        catch (Exception ex) { Log($"psiphon3: {ex.Message}"); }
+    }
+
+    // Only the copy beside this exe, so a separately installed Psiphon is left alone.
+    private static void KillPsiphon()
+    {
+        var exe = Path.Combine(AppContext.BaseDirectory, "psiphon3.exe");
+        foreach (var p in Process.GetProcessesByName("psiphon3"))
+            try { if (string.Equals(p.MainModule?.FileName, exe, StringComparison.OrdinalIgnoreCase)) p.Kill(true); } catch { }
     }
 
     private bool _watchdogStarted;
@@ -237,7 +255,7 @@ public partial class Form1 : Form
         var head = Color.Blue; Color? info = null; var tip = Color.DarkOrange;
         Log("=== Proxy info ===", head);
         Log($"System proxy: {SystemProxy.Status()}", info);
-        Log($"HTTP {Aether.HttpPort} (system proxy) | SOCKS5 1818 (delay test, free for manual use)", info);
+        Log($"HTTP {Aether.HttpPort} (system proxy) | SOCKS5 {Aether.SocksPort} (delay test, free for manual use)", info);
         Log($"aether.exe: {(_process is { HasExited: false } ? "running" : "stopped")} | {lblStatus.Text.TrimStart('●', ' ')} | {lblDelay.Text}", info);
         Log("Presets: " + string.Join(", ", Aether.Presets.Select(p => p.Name)), info);
         Log("Cleanup: form close, --watchdog copy, hidden PowerShell guard, reset on startup.", info);

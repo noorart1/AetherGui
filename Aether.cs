@@ -18,8 +18,34 @@ static class Aether
 {
     private const string TestUrl = "http://www.gstatic.com/generate_204";
     private const int ConnectTimeoutMs = 10_000; // after the proxy is up, the internet test must pass within this
-    public const int HttpPort = 1819;            // HTTP proxy, set as the system proxy
-    private const int SocksPort = 1818;          // SOCKS5, used for the delay test (free for manual use too)
+    public const int DefaultHttpPort = 1819, DefaultSocksPort = 1818;
+    private const int InnerPort = 1822;          // base listener when tor/psiphon serves the SOCKS exit
+    private const string PortsKey = @"Software\AetherGui";
+
+    // Read from the registry on every use, so the --watchdog copy always matches what the GUI last set.
+    public static int HttpPort => SavedPort("HttpPort", DefaultHttpPort);   // HTTP proxy, set as the system proxy
+    public static int SocksPort => SavedPort("SocksPort", DefaultSocksPort); // SOCKS5, used for the delay test (free for manual use too)
+
+    private static int SavedPort(string name, int fallback)
+    {
+        using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(PortsKey);
+        return key?.GetValue(name) is int p and >= 1024 and <= 65535 ? p : fallback; // the pair is validated on save
+    }
+
+    // null when usable, otherwise why not.
+    public static string? ValidPorts(int http, int socks) =>
+        http is < 1024 or > 65535 || socks is < 1024 or > 65535 ? "Ports must be 1024-65535."
+        : http == socks ? "HTTP and SOCKS5 ports must differ."
+        : http == InnerPort || socks == InnerPort ? $"Port {InnerPort} is used internally." : null;
+
+    public static void SavePorts(int http, int socks)
+    {
+        using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(PortsKey);
+        key.SetValue("HttpPort", http);
+        key.SetValue("SocksPort", socks);
+        SocksProxy.Address = new Uri($"socks5://127.0.0.1:{socks}");
+    }
+
     private static readonly string Dir = AppContext.BaseDirectory; // aether.exe lives beside this exe
     private static readonly string Exe = Path.Combine(Dir, "aether.exe");
 
@@ -82,7 +108,8 @@ static class Aether
         string.Join(",", connectMs.Select(kv => $"{kv.Key}:{kv.Value}"));
 
     // A real request through aether's SOCKS5 proxy measures the real delay.
-    private static readonly HttpClient Http = new(new SocketsHttpHandler { Proxy = new WebProxy($"socks5://127.0.0.1:{SocksPort}") })
+    private static readonly WebProxy SocksProxy = new($"socks5://127.0.0.1:{SocksPort}");
+    private static readonly HttpClient Http = new(new SocketsHttpHandler { Proxy = SocksProxy })
     { Timeout = TimeSpan.FromSeconds(3) };
 
     public const string GuiRepo = "noorart1/AetherGui";
@@ -177,7 +204,7 @@ static class Aether
             .Where(a => a is not ("--turbo" or "-4" or "--quick-reconnect")).ToList();
         bool tor = args.Contains("--tor"), psiphon = args.Contains("--psiphon");
         args.AddRange(options.Arguments);
-        args.AddRange(["--bind", $"127.0.0.1:{(tor || psiphon ? 1822 : SocksPort)}"]);
+        args.AddRange(["--bind", $"127.0.0.1:{(tor || psiphon ? InnerPort : SocksPort)}"]);
         if (tor) args.AddRange(["--tor-bind", $"127.0.0.1:{SocksPort}"]);
         if (psiphon) args.AddRange(["--psiphon-bind", $"127.0.0.1:{SocksPort}"]);
         args.AddRange([p.HttpFlag, $"127.0.0.1:{HttpPort}"]);
