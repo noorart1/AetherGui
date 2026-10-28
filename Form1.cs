@@ -149,6 +149,13 @@ public partial class Form1 : Form
     {
         var exe = Path.Combine(AppContext.BaseDirectory, "psiphon3.exe");
         if (!File.Exists(exe) || Process.GetProcessesByName("psiphon3").Length > 0) return;
+        // Psiphon reads its Upstream Proxy setting from here at startup: point it at our HTTP port.
+        using (var key = Registry.CurrentUser.CreateSubKey(@"Software\Psiphon3"))
+        {
+            key.SetValue("SSHParentProxyHost", "127.0.0.1");
+            key.SetValue("SSHParentProxyPort", Aether.HttpPort);
+            key.SetValue("SSHParentProxySkip", 0);
+        }
         try { Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true, WorkingDirectory = AppContext.BaseDirectory }); }
         catch (Exception ex) { Log($"psiphon3: {ex.Message}"); }
     }
