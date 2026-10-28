@@ -93,11 +93,13 @@ sealed class CoreSettingsForm : Form
     {
         FillOrder(Aether.SavedOrder);
         var moves = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true };
-        moves.Controls.AddRange([MoveButton("Up", -1), MoveButton("Down", 1)]);
+        var resetOrder = new Button { Text = "Reset order", AutoSize = true, AccessibleName = "Reset Auto order to the speed ranking" };
+        resetOrder.Click += (_, _) => FillOrder(null);
+        moves.Controls.AddRange([MoveButton("Up", -1), MoveButton("Down", 1), resetOrder]);
         var note = new Label { AutoSize = true, Dock = DockStyle.Fill, Text =
             "Auto tries the checked protocols from the top. After each try the app moves that protocol by its speed " +
             "(to the bottom if it failed); your own moves stay otherwise. Up/Down move all checked protocols one step. " +
-            "Reset fields restores the speed ranking." };
+            "Reset order restores the speed ranking (only this list); then Save." };
 
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
