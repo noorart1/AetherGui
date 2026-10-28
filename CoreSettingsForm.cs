@@ -6,8 +6,7 @@ sealed class CoreSettingsForm : Form
     private readonly TextBox _arguments = Editor();
     private readonly TextBox _environment = Editor();
     private readonly NumericUpDown _timeout = new() { Minimum = 30, Maximum = 3600, Width = 120 };
-    private readonly NumericUpDown _httpPort = new() { Minimum = 1024, Maximum = 65535, Width = 100, Value = Aether.HttpPort, AccessibleName = "HTTP proxy port" };
-    private readonly NumericUpDown _socksPort = new() { Minimum = 1024, Maximum = 65535, Width = 100, Value = Aether.SocksPort, AccessibleName = "SOCKS5 proxy port" };
+    private readonly NumericUpDown _port = new() { Minimum = 1024, Maximum = 65535, Width = 100, Value = Aether.ProxyPort, AccessibleName = "Proxy port (HTTP and SOCKS5)" };
     private readonly CancellationTokenSource _helpCancellation = new(TimeSpan.FromSeconds(10));
 
     private static TextBox Editor() => new()
@@ -40,7 +39,7 @@ sealed class CoreSettingsForm : Form
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         var warning = new Label { AutoSize = true, Dock = DockStyle.Fill, Text =
             "Expert options apply to every protocol. Use a manual protocol for protocol-specific flags. " +
-            "Protocols are app-managed; set ports below, not as arguments. Settings are stored in LocalAppData, NOT encrypted. " +
+            "Protocols are app-managed; set the port below, not as arguments. Settings are stored in LocalAppData, NOT encrypted. " +
             "Direct routes bypass the tunnel; Gateway/debug logs can expose browsing or secrets. " +
             "SO_MARK is not a Windows feature. File options require existing accessible files." };
         layout.Controls.Add(warning, 0, 0);
@@ -55,8 +54,7 @@ sealed class CoreSettingsForm : Form
         _timeout.Value = options.StartupSeconds; timeRow.Controls.Add(_timeout);
         layout.Controls.Add(timeRow, 0, 5);
         var portRow = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
-        portRow.Controls.AddRange([new Label { Text = "HTTP proxy port", AutoSize = true }, _httpPort,
-            new Label { Text = "SOCKS5 port", AutoSize = true }, _socksPort]);
+        portRow.Controls.AddRange([new Label { Text = "Proxy port (HTTP + SOCKS5)", AutoSize = true }, _port]);
         layout.Controls.Add(portRow, 0, 6);
         var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
         var save = new Button { Text = "Save", AutoSize = true };
@@ -66,7 +64,7 @@ sealed class CoreSettingsForm : Form
         reset.Click += (_, _) =>
         {
             _arguments.Text = "[]"; _environment.Text = "{}"; _timeout.Value = 300;
-            _httpPort.Value = Aether.DefaultHttpPort; _socksPort.Value = Aether.DefaultSocksPort;
+            _port.Value = Aether.DefaultProxyPort;
         };
         buttons.Controls.AddRange([save, reset, cancel]);
         layout.Controls.Add(buttons, 0, 7);
@@ -86,12 +84,12 @@ sealed class CoreSettingsForm : Form
 
     private void SaveOptions()
     {
-        int http = (int)_httpPort.Value, socks = (int)_socksPort.Value;
-        if (Aether.ValidPorts(http, socks) is string error) { MessageBox.Show(this, error, Text); return; }
+        var port = (int)_port.Value;
+        if (Aether.ValidPort(port) is string error) { MessageBox.Show(this, error, Text); return; }
         try
         {
             var options = CoreOptions.Parse(_arguments.Text, _environment.Text, (int)_timeout.Value);
-            options.Save(); Aether.SavePorts(http, socks); Options = options; DialogResult = DialogResult.OK; Close();
+            options.Save(); Aether.ProxyPort = port; Options = options; DialogResult = DialogResult.OK; Close();
         }
         catch (Exception ex) when (ex is System.Text.Json.JsonException or FormatException)
         { MessageBox.Show(this, "Invalid JSON/settings. Use string arrays and string environment values; do not override managed protocols or ports.", Text); }

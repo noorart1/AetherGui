@@ -13,6 +13,8 @@
     <Compile Include="..\Form1.cs" Link="Form1.cs" />
     <Compile Include="..\Form1.Designer.cs" Link="Form1.Designer.cs" />
     <Compile Include="..\SystemProxy.cs" Link="SystemProxy.cs" />
+    <Compile Include="..\MixedProxy.cs" Link="MixedProxy.cs" />
+    <Compile Include="..\Psiphon.cs" Link="Psiphon.cs" />
     <None Include="..\aether.exe" Link="aether.exe" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

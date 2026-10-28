@@ -5,12 +5,12 @@ using Microsoft.Win32;
 
 namespace AetherGui;
 
-// Windows system (WinINet) proxy pointing at aether's local SOCKS5 port.
+// Windows system (WinINet) proxy pointing at the GUI's mixed proxy port.
 static class SystemProxy
 {
     private const string KeyPath = @"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
     // Plain host:port is what Windows shows cleanly in Settings; it is read as an HTTP proxy.
-    private static string Server => $"127.0.0.1:{Aether.HttpPort}";
+    private static string Server => $"127.0.0.1:{Aether.ProxyPort}";
     private const string Bypass = "<-loopback>;localhost;*.local;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*";
 
     private static readonly string AetherExe = Path.Combine(AppContext.BaseDirectory, "aether.exe").Replace("'", "''");
@@ -27,8 +27,8 @@ static class SystemProxy
 Wait-Process -Id {pid} -ErrorAction SilentlyContinue
 Get-Process aether -ErrorAction SilentlyContinue | Where-Object {{ $_.Path -eq '{AetherExe}' }} | Stop-Process -Force
 $k = 'HKCU:\{KeyPath}'
-$port = (Get-ItemProperty 'HKCU:\Software\AetherGui' -ErrorAction SilentlyContinue).HttpPort
-if (-not $port) {{ $port = {Aether.DefaultHttpPort} }} # read now: the port may have changed since this guard started
+$port = (Get-ItemProperty 'HKCU:\Software\AetherGui' -ErrorAction SilentlyContinue).ProxyPort
+if (-not $port) {{ $port = {Aether.DefaultProxyPort} }} # read now: the port may have changed since this guard started
 if ((Get-ItemProperty $k).ProxyServer -eq ""127.0.0.1:$port"") {{
     Set-ItemProperty $k ProxyEnable 0
     Add-Type -MemberDefinition '[DllImport(""wininet.dll"")] public static extern bool InternetSetOption(IntPtr h, int o, IntPtr b, int l);' -Name W -Namespace G

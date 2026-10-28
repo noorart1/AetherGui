@@ -18,33 +18,32 @@ static class Aether
 {
     private const string TestUrl = "http://www.gstatic.com/generate_204";
     private const int ConnectTimeoutMs = 10_000; // after the proxy is up, the internet test must pass within this
-    public const int DefaultHttpPort = 1819, DefaultSocksPort = 1818;
+    // The core's own listeners; users and the system proxy use the mixed ProxyPort in front of them.
+    public const int SocksPort = 1818;           // SOCKS5, also used for the delay test
+    public const int CoreHttpPort = 1820;        // HTTP CONNECT
     private const int InnerPort = 1822;          // base listener when tor/psiphon serves the SOCKS exit
+    public const int DefaultProxyPort = 1819;    // what the system proxy used before ports were mixed
     private const string PortsKey = @"Software\AetherGui";
 
     // Read from the registry on every use, so the --watchdog copy always matches what the GUI last set.
-    public static int HttpPort => SavedPort("HttpPort", DefaultHttpPort);   // HTTP proxy, set as the system proxy
-    public static int SocksPort => SavedPort("SocksPort", DefaultSocksPort); // SOCKS5, used for the delay test (free for manual use too)
-
-    private static int SavedPort(string name, int fallback)
+    public static int ProxyPort
     {
-        using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(PortsKey);
-        return key?.GetValue(name) is int p and >= 1024 and <= 65535 ? p : fallback; // the pair is validated on save
+        get
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(PortsKey);
+            return key?.GetValue("ProxyPort") is int p && ValidPort(p) is null ? p : DefaultProxyPort;
+        }
+        set
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(PortsKey);
+            key.SetValue("ProxyPort", value);
+        }
     }
 
     // null when usable, otherwise why not.
-    public static string? ValidPorts(int http, int socks) =>
-        http is < 1024 or > 65535 || socks is < 1024 or > 65535 ? "Ports must be 1024-65535."
-        : http == socks ? "HTTP and SOCKS5 ports must differ."
-        : http == InnerPort || socks == InnerPort ? $"Port {InnerPort} is used internally." : null;
-
-    public static void SavePorts(int http, int socks)
-    {
-        using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(PortsKey);
-        key.SetValue("HttpPort", http);
-        key.SetValue("SocksPort", socks);
-        SocksProxy.Address = new Uri($"socks5://127.0.0.1:{socks}");
-    }
+    public static string? ValidPort(int port) =>
+        port is < 1024 or > 65535 ? "Port must be 1024-65535."
+        : port is SocksPort or CoreHttpPort or InnerPort ? $"Ports {SocksPort}, {CoreHttpPort} and {InnerPort} are used internally." : null;
 
     private static readonly string Dir = AppContext.BaseDirectory; // aether.exe lives beside this exe
     private static readonly string Exe = Path.Combine(Dir, "aether.exe");
@@ -108,8 +107,7 @@ static class Aether
         string.Join(",", connectMs.Select(kv => $"{kv.Key}:{kv.Value}"));
 
     // A real request through aether's SOCKS5 proxy measures the real delay.
-    private static readonly WebProxy SocksProxy = new($"socks5://127.0.0.1:{SocksPort}");
-    private static readonly HttpClient Http = new(new SocketsHttpHandler { Proxy = SocksProxy })
+    private static readonly HttpClient Http = new(new SocketsHttpHandler { Proxy = new WebProxy($"socks5://127.0.0.1:{SocksPort}") })
     { Timeout = TimeSpan.FromSeconds(3) };
 
     public const string GuiRepo = "noorart1/AetherGui";
@@ -207,7 +205,7 @@ static class Aether
         args.AddRange(["--bind", $"127.0.0.1:{(tor || psiphon ? InnerPort : SocksPort)}"]);
         if (tor) args.AddRange(["--tor-bind", $"127.0.0.1:{SocksPort}"]);
         if (psiphon) args.AddRange(["--psiphon-bind", $"127.0.0.1:{SocksPort}"]);
-        args.AddRange([p.HttpFlag, $"127.0.0.1:{HttpPort}"]);
+        args.AddRange([p.HttpFlag, $"127.0.0.1:{CoreHttpPort}"]);
         var info = new ProcessStartInfo(Exe)
         {
             WorkingDirectory = Dir, UseShellExecute = false, CreateNoWindow = true,

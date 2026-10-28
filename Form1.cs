@@ -90,6 +90,8 @@ public partial class Form1 : Form
         {
             SetStatus("Downloading aether...", Palette.Connecting);
             if (!await Aether.EnsureInstalledAsync(Log, ct)) return;
+            try { _ = MixedProxy.Start(Aether.ProxyPort, ct); }
+            catch (System.Net.Sockets.SocketException) { Log($"Port {Aether.ProxyPort} is in use. Pick another in Core settings."); return; }
             while (true)
             {
                 if (untried.Count == 0) untried.AddRange(chosen < 0 ? Aether.AutoOrder(_connectMs) : [Aether.Presets[chosen]]);
@@ -131,7 +133,7 @@ public partial class Form1 : Form
         if (chkSysProxy.Checked) SystemProxy.Enable();
         SetStatus($"Connected: {p.Name}", Palette.Connected);
         Log($"Connected via {p.Name} in {took.Elapsed.TotalSeconds:0.0}s, delay {ms} ms.");
-        StartPsiphon();
+        _ = StartPsiphonAsync(ct); // a download must not hold up the connection monitor below
         for (int fails = 0; fails < 2;)
         {
             lblDelay.Text = ms is null ? "Delay: timeout" : $"Delay: {ms} ms";
@@ -144,16 +146,25 @@ public partial class Form1 : Form
         KillProcess();
     }
 
-    // Opens psiphon3.exe from beside this exe once per connection; skipped if missing or already running.
-    private void StartPsiphon()
+    private bool _psiphonStarting;
+
+    // Opens psiphon3.exe from beside this exe once per connection, downloading it first if missing; skipped if already running.
+    private async Task StartPsiphonAsync(CancellationToken ct)
     {
-        var exe = Path.Combine(AppContext.BaseDirectory, "psiphon3.exe");
-        if (!File.Exists(exe) || Process.GetProcessesByName("psiphon3").Length > 0) return;
+        if (_psiphonStarting || Process.GetProcessesByName("psiphon3").Length > 0) return;
+        _psiphonStarting = true;
+        try
+        {
+            if (!await Psiphon.EnsureDownloadedAsync(Log, ct) || ct.IsCancellationRequested) return;
+        }
+        catch (OperationCanceledException) { return; }
+        finally { _psiphonStarting = false; }
+        var exe = Psiphon.Exe;
         // Psiphon reads its Upstream Proxy setting from here at startup: point it at our HTTP port.
         using (var key = Registry.CurrentUser.CreateSubKey(@"Software\Psiphon3"))
         {
             key.SetValue("SSHParentProxyHost", "127.0.0.1");
-            key.SetValue("SSHParentProxyPort", Aether.HttpPort);
+            key.SetValue("SSHParentProxyPort", Aether.ProxyPort);
             key.SetValue("SSHParentProxySkip", 0);
         }
         try { Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true, WorkingDirectory = AppContext.BaseDirectory }); }
@@ -163,9 +174,8 @@ public partial class Form1 : Form
     // Only the copy beside this exe, so a separately installed Psiphon is left alone.
     private static void KillPsiphon()
     {
-        var exe = Path.Combine(AppContext.BaseDirectory, "psiphon3.exe");
         foreach (var p in Process.GetProcessesByName("psiphon3"))
-            try { if (string.Equals(p.MainModule?.FileName, exe, StringComparison.OrdinalIgnoreCase)) p.Kill(true); } catch { }
+            try { if (string.Equals(p.MainModule?.FileName, Psiphon.Exe, StringComparison.OrdinalIgnoreCase)) p.Kill(true); } catch { }
     }
 
     private bool _watchdogStarted;
@@ -262,7 +272,7 @@ public partial class Form1 : Form
         var head = Color.Blue; Color? info = null; var tip = Color.DarkOrange;
         Log("=== Proxy info ===", head);
         Log($"System proxy: {SystemProxy.Status()}", info);
-        Log($"HTTP {Aether.HttpPort} (system proxy) | SOCKS5 {Aether.SocksPort} (delay test, free for manual use)", info);
+        Log($"Proxy {Aether.ProxyPort} (HTTP + SOCKS5, system proxy) | core: SOCKS5 {Aether.SocksPort}, HTTP {Aether.CoreHttpPort}", info);
         Log($"aether.exe: {(_process is { HasExited: false } ? "running" : "stopped")} | {lblStatus.Text.TrimStart('●', ' ')} | {lblDelay.Text}", info);
         Log("Presets: " + string.Join(", ", Aether.Presets.Select(p => p.Name)), info);
         Log("Cleanup: form close, --watchdog copy, hidden PowerShell guard, reset on startup.", info);

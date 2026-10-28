@@ -37,7 +37,7 @@ static class Checks
             bool tor = preset.Args.Split(' ').Contains("--tor"), psiphon = preset.Args.Split(' ').Contains("--psiphon");
             string socks = $"127.0.0.1:{Aether.SocksPort}";
             Check(Value("--bind") == (tor || psiphon ? "127.0.0.1:1822" : socks), preset.Name + " base listener");
-            Check(Value(preset.HttpFlag) == $"127.0.0.1:{Aether.HttpPort}", preset.Name + " HTTP exit");
+            Check(Value(preset.HttpFlag) == $"127.0.0.1:{Aether.CoreHttpPort}", preset.Name + " HTTP exit");
             if (tor) Check(Value("--tor-bind") == socks, "Tor SOCKS exit");
             if (psiphon) Check(Value("--psiphon-bind") == socks, "Psiphon SOCKS exit");
             Check(info.Environment["AETHER_SCAN"] == "balanced" && !args.Contains("--turbo"), "Environment overrides defaults");
@@ -54,8 +54,41 @@ static class Checks
             var saved = Aether.ParseConnectMs(Aether.FormatConnectMs(past) + ",999:5,x:1,3");
             Check(saved.Count == 3 && saved[Index("MASQUE")] == 3000 && saved[Index("MASQUE-in-MASQUE")] == -1, "Connect times round-trip, junk dropped");
         }
-        Check(Aether.ValidPorts(8080, 1080) is null && Aether.ValidPorts(1819, 1819) is not null
-            && Aether.ValidPorts(1822, 1818) is not null && Aether.ValidPorts(80, 1818) is not null, "Custom ports validated");
+        Check(Aether.ValidPort(10808) is null && Aether.ValidPort(80) is not null
+            && new[] { 1818, 1820, 1822 }.All(p => Aether.ValidPort(p) is not null), "Custom port validated");
+        {
+            // Fake core listeners answer with their name; the mixed port must pick by the first byte.
+            using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            static System.Net.Sockets.TcpListener Fake(int port, string name, CancellationToken ct)
+            {
+                var l = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port); l.Start();
+                _ = Task.Run(async () => { using var c = await l.AcceptTcpClientAsync(ct); await c.GetStream().ReadAsync(new byte[1], ct);
+                    await c.GetStream().WriteAsync(System.Text.Encoding.ASCII.GetBytes(name), ct); await Task.Delay(500, ct); }, ct);
+                return l;
+            }
+            static string Ask(int port, byte first)
+            {
+                using var c = new System.Net.Sockets.TcpClient("127.0.0.1", port);
+                c.GetStream().Write([first]);
+                var buf = new byte[5];
+                return System.Text.Encoding.ASCII.GetString(buf, 0, c.GetStream().Read(buf));
+            }
+            var socks = Fake(Aether.SocksPort, "socks", stop.Token); var http = Fake(Aether.CoreHttpPort, "http", stop.Token);
+            _ = MixedProxy.Start(18190, stop.Token);
+            Check(Ask(18190, 5) == "socks" && Ask(18190, (byte)'C') == "http", "Mixed port routes SOCKS5 and HTTP");
+            stop.Cancel(); socks.Stop(); http.Stop();
+        }
+        {
+            var unsigned = Path.GetTempFileName();
+            Check(!Psiphon.IsSignedByPsiphon(unsigned), "Unsigned psiphon3.exe rejected");
+            File.Delete(unsigned);
+            var real = Path.Combine(AppContext.BaseDirectory, @"..\..\..\..\publish\psiphon3.exe");
+            if (File.Exists(real)) Check(Psiphon.IsSignedByPsiphon(real), "Real psiphon3.exe signature accepted");
+            var tampered = Path.GetTempFileName();
+            if (File.Exists(real)) { var b = File.ReadAllBytes(real); b[b.Length / 2] ^= 1; File.WriteAllBytes(tampered, b); }
+            if (File.Exists(real)) Check(!Psiphon.IsSignedByPsiphon(tampered), "Tampered psiphon3.exe rejected");
+            File.Delete(tampered);
+        }
         Check(Aether.ParseVersion("v2.4.0") == new Version(2, 4, 0) && Aether.ParseVersion("aether 2.3.0\n") == new Version(2, 3, 0), "Release tag and core output parse");
         Check(Aether.ParseVersion("1.0.0.0") == Aether.ParseVersion("v1.0.0") && Aether.ParseVersion("nightly") is null, "Version compare ignores the fourth part");
         Check(new Aether.Updates(new Version(2, 3, 0), new Version(2, 4, 0), null, null).CoreNewer
