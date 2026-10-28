@@ -20,8 +20,9 @@ static class Aether
     private const int ConnectTimeoutMs = 10_000; // after the proxy is up, the internet test must pass within this
     // The core's own listeners; users and the system proxy use the mixed ProxyPort in front of them.
     public const int SocksPort = 1818;           // SOCKS5, also used for the delay test
-    public const int CoreHttpPort = 1820;        // HTTP CONNECT
+    public const int CoreHttpPort = 1823;        // HTTP CONNECT
     private const int InnerPort = 1822;          // base listener when tor/psiphon serves the SOCKS exit
+    private const int TorDefault = 1820, PsiphonDefault = 1821; // the core's own --tor-bind/--psiphon-bind defaults, used by the reverse modes
     public const int DefaultProxyPort = 1819;    // what the system proxy used before ports were mixed
     private const string PortsKey = @"Software\AetherGui";
 
@@ -43,7 +44,7 @@ static class Aether
     // null when usable, otherwise why not.
     public static string? ValidPort(int port) =>
         port is < 1024 or > 65535 ? "Port must be 1024-65535."
-        : port is SocksPort or CoreHttpPort or InnerPort ? $"Ports {SocksPort}, {CoreHttpPort} and {InnerPort} are used internally." : null;
+        : port is SocksPort or >= TorDefault and <= CoreHttpPort ? $"Ports {SocksPort} and {TorDefault}-{CoreHttpPort} are used internally." : null;
 
     private static readonly string Dir = AppContext.BaseDirectory; // aether.exe lives beside this exe
     private static readonly string Exe = Path.Combine(Dir, "aether.exe");
@@ -88,12 +89,49 @@ static class Aether
 
     public static readonly Preset[] AutoPresets = Presets.Where(p => !p.ManualOnly).ToArray();
 
-    // Auto order from past connects (preset index -> ms to connect, -1 = failed last time):
+    // The saved Auto order as preset indexes, kept up to date by Rerank and editable by the user;
+    // empty = not saved yet, rank by past connects. Saved as "3,0,8".
+    public static int[] SavedOrder
+    {
+        get
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(PortsKey);
+            return ParseOrder(key?.GetValue("AutoOrder") as string);
+        }
+        set
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(PortsKey);
+            key.SetValue("AutoOrder", string.Join(",", value));
+        }
+    }
+
+    // Unknown, malformed and repeated indexes are dropped.
+    public static int[] ParseOrder(string? text) => (text ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)
+        .Select(s => int.TryParse(s, out var i) ? i : -1).Where(i => i >= 0 && i < Presets.Length).Distinct().ToArray();
+
+    // A saved order is used as is. Otherwise from past connects (preset index -> ms to connect, -1 = failed last time):
     // fastest first, then never tried, then failed; ties shuffled (OrderBy is stable).
-    public static List<Preset> AutoOrder(IReadOnlyDictionary<int, int> connectMs) => AutoPresets
+    public static List<Preset> AutoOrder(IReadOnlyDictionary<int, int> connectMs, int[]? saved = null) => saved is { Length: > 0 }
+        ? saved.Select(i => Presets[i]).ToList()
+        : AutoPresets
         .OrderBy(_ => Random.Shared.Next())
-        .OrderBy(p => connectMs.TryGetValue(Array.IndexOf(Presets, p), out var ms) ? (ms < 0 ? int.MaxValue : ms) : FastSecs * 1000)
+        .OrderBy(p => SpeedKey(connectMs, Array.IndexOf(Presets, p)))
         .ToList();
+
+    private static int SpeedKey(IReadOnlyDictionary<int, int> connectMs, int i) =>
+        connectMs.TryGetValue(i, out var ms) ? (ms < 0 ? int.MaxValue : ms) : FastSecs * 1000;
+
+    // After a connect attempt only the tested preset moves: before the first one that was slower (to the end if it failed).
+    // Everything else keeps its place, so the user's own moves survive.
+    public static int[] Rerank(int[] order, IReadOnlyDictionary<int, int> connectMs, int tested)
+    {
+        if (!order.Contains(tested)) return order;
+        var rest = order.Where(i => i != tested).ToList();
+        var key = SpeedKey(connectMs, tested);
+        var at = rest.FindIndex(i => SpeedKey(connectMs, i) > key);
+        rest.Insert(at < 0 ? rest.Count : at, tested);
+        return rest.ToArray();
+    }
 
     // Saved as "0:4200,8:-1"; unknown or malformed entries are dropped.
     public static Dictionary<int, int> ParseConnectMs(string? text) =>

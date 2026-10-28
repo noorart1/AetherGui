@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'aether.dart';
+import 'auto_order_page.dart';
 import 'core_options.dart';
 import 'core_settings_page.dart';
 
@@ -85,6 +86,8 @@ class _HomePageState extends State<HomePage> {
       _socksPortText = TextEditingController();
   // preset index -> ms its last connect took, -1 = failed; orders Auto
   var _connectMs = <int, int>{};
+  // Auto's order as preset indexes, kept current after each connect and editable; empty = speed ranking
+  var _order = <int>[];
 
   File get _settings => File('${Aether.dir}/settings.txt');
 
@@ -112,6 +115,9 @@ class _HomePageState extends State<HomePage> {
       _connectMs = Aether.parseConnectMs(
         RegExp(r'ConnectMs=(.*)').firstMatch(s)?.group(1),
       );
+      _order = Aether.parseOrder(
+        RegExp(r'AutoOrder=(.*)').firstMatch(s)?.group(1),
+      );
     } catch (_) {}
     try {
       _coreOptions = CoreOptions.load(Aether.dir);
@@ -119,6 +125,8 @@ class _HomePageState extends State<HomePage> {
       _autoConnect = false;
       _log('Could not load core settings. Review settings before connecting.');
     }
+    // Fix the shuffled ties once, so the order shown in Settings does not jump on every rebuild.
+    if (_order.isEmpty) _order = _autoIndexes();
     _httpPortText.text = '${Aether.httpPort}';
     _socksPortText.text = '${Aether.socksPort}';
     _checkUpdates(interactive: false);
@@ -154,8 +162,14 @@ class _HomePageState extends State<HomePage> {
     'AutoConnect=${_autoConnect ? 1 : 0}\nPreset=$_preset\nScan=$_scan\n'
     'Mode=${_vpn ? 'vpn' : 'proxy'}\n'
     'HttpPort=${Aether.httpPort}\nSocksPort=${Aether.socksPort}\n'
-    'ConnectMs=${Aether.formatConnectMs(_connectMs)}\n',
+    'ConnectMs=${Aether.formatConnectMs(_connectMs)}\n'
+    'AutoOrder=${_order.join(',')}\n',
   );
+
+  List<int> _autoIndexes([List<int>? saved]) => [
+    for (final p in Aether.autoOrder(_connectMs, saved))
+      Aether.presets.indexOf(p),
+  ];
 
   // Auto: try the fast presets, fastest past connect first; one that times out or drops is not retried until all others were tried.
   // A chosen preset (including the slow manual-only ones) is simply retried.
@@ -170,7 +184,7 @@ class _HomePageState extends State<HomePage> {
         if (untried.isEmpty) {
           untried.addAll(
             _preset < 0
-                ? Aether.autoOrder(_connectMs)
+                ? Aether.autoOrder(_connectMs, _order)
                 : [Aether.presets[_preset]],
           );
         }
@@ -205,6 +219,11 @@ class _HomePageState extends State<HomePage> {
     _connectMs[Aether.presets.indexOf(p)] = ms == null
         ? -1
         : took.elapsedMilliseconds;
+    _order = Aether.rerank(
+      _autoIndexes(_order),
+      _connectMs,
+      Aether.presets.indexOf(p),
+    );
     _saveSettings();
     if (ms == null) {
       _log(
@@ -251,6 +270,21 @@ class _HomePageState extends State<HomePage> {
       ),
     );
     if (mounted && options != null) setState(() => _coreOptions = options);
+  }
+
+  Future<void> _showAutoOrder() async {
+    final order = await Navigator.push<List<int>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AutoOrderPage(
+          order: _autoIndexes(_order),
+          ranking: _autoIndexes(),
+        ),
+      ),
+    );
+    if (!mounted || order == null) return;
+    setState(() => _order = order);
+    _saveSettings();
   }
 
   Future<void> _sendCoreInput() async {
@@ -378,7 +412,7 @@ class _HomePageState extends State<HomePage> {
       tip,
     );
     _log(
-      '3. Auto only rotates the fast protocols (30s each). Tor/Psiphon are manual: pick them on strict networks.',
+      '3. Auto rotates the fast protocols (30s each), or your own order from Settings > Auto order. Tor/Psiphon help on strict networks.',
       tip,
     );
   }
@@ -728,7 +762,7 @@ class _HomePageState extends State<HomePage> {
             dropdownMenuEntries: [
               const DropdownMenuEntry(
                 value: -1,
-                label: 'Auto (fast protocols)',
+                label: 'Auto (order below)',
               ),
               // Keep persisted values stable while displaying fast presets first.
               for (final manualOnly in [false, true])
@@ -740,6 +774,19 @@ class _HomePageState extends State<HomePage> {
               setState(() => _preset = v ?? -1);
               _saveSettings();
             },
+          ),
+          ListTile(
+            leading: const Icon(Icons.low_priority_rounded),
+            title: const Text('Auto order'),
+            subtitle: Text(
+              Aether.autoOrder(_connectMs, _order)
+                  .take(3)
+                  .map((p) => p.name)
+                  .join(' > '),
+              overflow: TextOverflow.ellipsis,
+            ),
+            enabled: !busy,
+            onTap: _showAutoOrder,
           ),
           const SizedBox(height: 16),
           const Text('Server search'),

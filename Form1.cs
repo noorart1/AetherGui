@@ -18,7 +18,7 @@ public partial class Form1 : Form
     public Form1()
     {
         InitializeComponent();
-        cboProtocol.Items.Add("Auto (fast protocols)");
+        cboProtocol.Items.Add("Auto (order in Core settings)");
         cboProtocol.Items.AddRange(Aether.MenuPresetIndexes.Select(i => (object)Aether.Presets[i].Label).ToArray());
         cboScan.Items.AddRange(["Fast: first server that answers", "Balanced: tries a few, keeps the fastest"]);
         using (var key = Registry.CurrentUser.OpenSubKey(SettingsKey))
@@ -94,7 +94,7 @@ public partial class Form1 : Form
             catch (System.Net.Sockets.SocketException) { Log($"Port {Aether.ProxyPort} is in use. Pick another in Core settings."); return; }
             while (true)
             {
-                if (untried.Count == 0) untried.AddRange(chosen < 0 ? Aether.AutoOrder(_connectMs) : [Aether.Presets[chosen]]);
+                if (untried.Count == 0) untried.AddRange(chosen < 0 ? Aether.AutoOrder(_connectMs, Aether.SavedOrder) : [Aether.Presets[chosen]]);
                 var p = untried[0];
                 untried.RemoveAt(0);
                 await ConnectAndMonitorAsync(p, scan, ct);
@@ -123,6 +123,8 @@ public partial class Form1 : Form
             _coreOptions.IsConfigured ? _coreOptions.StartupSeconds : p.StartupSecs, ct);
         _connectMs[Array.IndexOf(Aether.Presets, p)] = ms is null ? -1 : (int)took.ElapsedMilliseconds;
         SaveSetting("ConnectMs", Aether.FormatConnectMs(_connectMs));
+        var order = Aether.AutoOrder(_connectMs, Aether.SavedOrder).Select(x => Array.IndexOf(Aether.Presets, x)).ToArray();
+        Aether.SavedOrder = Aether.Rerank(order, _connectMs, Array.IndexOf(Aether.Presets, p));
         if (ms is null)
         {
             Log(proc.HasExited ? $"{p.Name}: process exited." : $"{p.Name}: no internet, switching.");
@@ -133,7 +135,8 @@ public partial class Form1 : Form
         if (chkSysProxy.Checked) SystemProxy.Enable();
         SetStatus($"Connected: {p.Name}", Palette.Connected);
         Log($"Connected via {p.Name} in {took.Elapsed.TotalSeconds:0.0}s, delay {ms} ms.");
-        _ = StartPsiphonAsync(ct); // a download must not hold up the connection monitor below
+        // The core's own psiphon modes already run Psiphon; a second one on top only slows it down.
+        if (!p.Args.Contains("psiphon")) _ = StartPsiphonAsync(ct); // a download must not hold up the connection monitor below
         for (int fails = 0; fails < 2;)
         {
             lblDelay.Text = ms is null ? "Delay: timeout" : $"Delay: {ms} ms";
@@ -200,7 +203,7 @@ public partial class Form1 : Form
     private void ShowCoreSettings()
     {
         if (_cts != null) return;
-        using var dialog = new CoreSettingsForm(_coreOptions);
+        using var dialog = new CoreSettingsForm(_coreOptions, _connectMs);
         if (dialog.ShowDialog(this) == DialogResult.OK) _coreOptions = dialog.Options;
     }
 
@@ -279,7 +282,7 @@ public partial class Form1 : Form
         Log("=== Recommendations ===", head);
         Log($"1. {secrets} aether*.toml file(s) beside the exe hold private keys/tokens: keep this folder private, rotate keys if shared.", tip);
         Log("2. Enable 'Set system proxy' only when needed; anything with its own proxy settings can bypass it.", tip);
-        Log("3. Auto only rotates the fast protocols (30s each). Tor/Psiphon are manual: pick them on strict networks.", tip);
+        Log("3. Auto rotates the fast protocols (30s each), or your own order from Core settings > Auto order. Tor/Psiphon help on strict networks.", tip);
     }
 
     private void SetStatus(string text, Color color)

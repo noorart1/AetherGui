@@ -181,14 +181,19 @@ class Aether {
   static Future<void> vpnSettings() => _ch.invokeMethod('vpnSettings');
 
   // "v1.2.0" or "1.2.0+3" -> [1, 2, 0]; null if it is not a version.
-  // Auto order from past connects (preset index -> ms to connect, -1 = failed last time):
-  // fastest first, then never tried, then failed; ties shuffled (List.sort is not stable, so ties use the shuffle position).
-  static List<Preset> autoOrder(Map<int, int> connectMs) {
-    int key(int i) => switch (connectMs[i]) {
-      null => fastSecs * 1000,
-      < 0 => 1 << 31,
-      final ms => ms,
-    };
+  static int _speedKey(Map<int, int> connectMs, int i) =>
+      switch (connectMs[i]) {
+        null => fastSecs * 1000,
+        < 0 => 1 << 31,
+        final ms => ms,
+      };
+
+  // A saved order (kept current by rerank, editable by the user) is used as is. Otherwise from past connects
+  // (preset index -> ms to connect, -1 = failed last time): fastest first, then never tried, then failed;
+  // ties shuffled (List.sort is not stable, so ties use the shuffle position).
+  static List<Preset> autoOrder(Map<int, int> connectMs, [List<int>? saved]) {
+    if (saved != null && saved.isNotEmpty) return [for (final i in saved) presets[i]];
+    int key(int i) => _speedKey(connectMs, i);
     final shuffled = [
       for (final (i, p) in presets.indexed)
         if (!p.manualOnly) i,
@@ -200,6 +205,24 @@ class Aether {
     });
     return [for (final i in shuffled) presets[i]];
   }
+
+  // After a connect attempt only the tested preset moves: before the first one that was slower (to the end if it failed).
+  // Everything else keeps its place, so the user's own moves survive.
+  static List<int> rerank(List<int> order, Map<int, int> connectMs, int tested) {
+    if (!order.contains(tested)) return order;
+    final rest = [for (final i in order) if (i != tested) i];
+    final key = _speedKey(connectMs, tested);
+    final at = rest.indexWhere((i) => _speedKey(connectMs, i) > key);
+    return rest..insert(at < 0 ? rest.length : at, tested);
+  }
+
+  // Saved as "3,0,8"; unknown, malformed and repeated indexes are dropped.
+  static List<int> parseOrder(String? s) => [
+    ...{
+      for (final i in (s ?? '').split(',').map(int.tryParse))
+        if (i != null && i >= 0 && i < presets.length) i,
+    },
+  ];
 
   // Saved as "0:4200,8:-1"; unknown or malformed entries are dropped.
   static Map<int, int> parseConnectMs(String? s) => {

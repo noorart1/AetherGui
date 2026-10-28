@@ -51,11 +51,20 @@ static class Checks
             var order = Aether.AutoOrder(past).Select(p => p.Name).ToList();
             Check(order[0] == "MASQUE" && order[1] == "WireGuard" && order[^1] == "MASQUE-in-MASQUE"
                 && order.Count == Aether.AutoPresets.Length, "Auto tries fastest first, failed last");
+            var manual = Aether.ParseOrder($"{Index("Tor alone")},x,{Index("MASQUE")},{Index("Tor alone")},999,-1");
+            Check(Aether.AutoOrder(past, manual).Select(p => p.Name).SequenceEqual(["Tor alone", "MASQUE"]), "Manual Auto order used as is, junk dropped");
+            Check(Aether.AutoOrder(past, []).Count == Aether.AutoPresets.Length, "Empty manual order falls back to ranking");
+            // User put WireGuard (9000 ms) first; a new 2000 ms MASQUE goes before it, a failed one to the end, the rest stay.
+            int m = Index("MASQUE"), w = Index("WireGuard"), t = Index("Tor alone");
+            int[] mine = [w, t, m];
+            Check(Aether.Rerank(mine, new Dictionary<int, int>(past) { [m] = 2000 }, m).SequenceEqual([m, w, t]), "Faster tested protocol moves up");
+            Check(Aether.Rerank(mine, new Dictionary<int, int>(past) { [w] = -1 }, w).SequenceEqual([t, m, w]), "Failed protocol moves to the end");
+            Check(Aether.Rerank(mine, past, Index("WireGuard-in-MASQUE (gool)")) == mine, "Untested-in-order protocol changes nothing");
             var saved = Aether.ParseConnectMs(Aether.FormatConnectMs(past) + ",999:5,x:1,3");
             Check(saved.Count == 3 && saved[Index("MASQUE")] == 3000 && saved[Index("MASQUE-in-MASQUE")] == -1, "Connect times round-trip, junk dropped");
         }
         Check(Aether.ValidPort(10808) is null && Aether.ValidPort(80) is not null
-            && new[] { 1818, 1820, 1822 }.All(p => Aether.ValidPort(p) is not null), "Custom port validated");
+            && new[] { 1818, 1820, 1821, 1822, 1823 }.All(p => Aether.ValidPort(p) is not null), "Custom port validated");
         {
             // Fake core listeners answer with their name; the mixed port must pick by the first byte.
             using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(10));

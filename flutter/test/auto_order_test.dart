@@ -18,6 +18,24 @@ void main() {
     }
   });
 
+  test('a saved order is used as is; junk dropped', () {
+    final saved = Aether.parseOrder(
+      '${index('Tor alone')},x,${index('MASQUE')},${index('Tor alone')},999,-1',
+    );
+    expect(Aether.autoOrder({}, saved).map((p) => p.name), [
+      'Tor alone',
+      'MASQUE',
+    ]);
+  });
+
+  test('rerank moves only the tested protocol', () {
+    final past = {index('WireGuard'): 9000, index('MASQUE'): 3000};
+    final m = index('MASQUE'), w = index('WireGuard'), t = index('Tor alone');
+    expect(Aether.rerank([w, t, m], {...past, m: 2000}, m), [m, w, t]);
+    expect(Aether.rerank([w, t, m], {...past, w: -1}, w), [t, m, w]);
+    expect(Aether.rerank([w, t, m], past, index('MASQUE HTTP/2')), [w, t, m]);
+  });
+
   test('connect times round-trip and junk is dropped', () {
     final past = {index('MASQUE'): 3000, index('MASQUE-in-MASQUE'): -1};
     final saved = Aether.parseConnectMs(

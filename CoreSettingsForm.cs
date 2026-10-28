@@ -7,6 +7,8 @@ sealed class CoreSettingsForm : Form
     private readonly TextBox _environment = Editor();
     private readonly NumericUpDown _timeout = new() { Minimum = 30, Maximum = 3600, Width = 120 };
     private readonly NumericUpDown _port = new() { Minimum = 1024, Maximum = 65535, Width = 100, Value = Aether.ProxyPort, AccessibleName = "Proxy port (HTTP and SOCKS5)" };
+    private readonly IReadOnlyDictionary<int, int> _connectMs;
+    private readonly CheckedListBox _order = new() { Dock = DockStyle.Fill, CheckOnClick = true, IntegralHeight = false, DisplayMember = nameof(Preset.Label), AccessibleName = "Auto protocol order" };
     private readonly CancellationTokenSource _helpCancellation = new(TimeSpan.FromSeconds(10));
 
     private static TextBox Editor() => new()
@@ -15,9 +17,10 @@ sealed class CoreSettingsForm : Form
         WordWrap = false, Dock = DockStyle.Fill, Font = new Font("Consolas", 10)
     };
 
-    public CoreSettingsForm(CoreOptions options)
+    public CoreSettingsForm(CoreOptions options, IReadOnlyDictionary<int, int>? connectMs = null)
     {
         Options = options;
+        _connectMs = connectMs ?? new Dictionary<int, int>();
         Text = "Core settings";
         AutoScaleMode = AutoScaleMode.Dpi;
         ClientSize = new Size(800, 650);
@@ -28,6 +31,8 @@ sealed class CoreSettingsForm : Form
         var helpTab = new TabPage("Bundled core help");
         var help = Editor(); help.ReadOnly = true; help.Text = "Loading...";
         helpTab.Controls.Add(help);
+        var orderTab = new TabPage("Auto order") { Padding = new Padding(12) };
+        orderTab.Controls.Add(OrderLayout());
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 8 };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -64,11 +69,11 @@ sealed class CoreSettingsForm : Form
         reset.Click += (_, _) =>
         {
             _arguments.Text = "[]"; _environment.Text = "{}"; _timeout.Value = 300;
-            _port.Value = Aether.DefaultProxyPort;
+            _port.Value = Aether.DefaultProxyPort; FillOrder(null);
         };
         buttons.Controls.AddRange([save, reset, cancel]);
         layout.Controls.Add(buttons, 0, 7);
-        settings.Controls.Add(layout); tabs.TabPages.AddRange([settings, helpTab]); Controls.Add(tabs);
+        settings.Controls.Add(layout); tabs.TabPages.AddRange([settings, orderTab, helpTab]); Controls.Add(tabs);
         CancelButton = cancel;
         Shown += async (_, _) =>
         {
@@ -82,14 +87,60 @@ sealed class CoreSettingsForm : Form
         FormClosed += (_, _) => _helpCancellation.Cancel();
     }
 
+    // Checked protocols are tried top to bottom, then the unchecked rest are skipped.
+    // The app keeps this order current after each connect; the user may move or uncheck any of them.
+    private TableLayoutPanel OrderLayout()
+    {
+        FillOrder(Aether.SavedOrder);
+        var moves = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true };
+        moves.Controls.AddRange([MoveButton("Up", -1), MoveButton("Down", 1)]);
+        var note = new Label { AutoSize = true, Dock = DockStyle.Fill, Text =
+            "Auto tries the checked protocols from the top. After each try the app moves that protocol by its speed " +
+            "(to the bottom if it failed); your own moves stay otherwise. Reset fields restores the speed ranking." };
+
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.Controls.Add(note, 0, 0); layout.SetColumnSpan(note, 2);
+        layout.Controls.Add(_order, 0, 1); layout.Controls.Add(moves, 1, 1);
+        return layout;
+    }
+
+    // saved null or empty = the speed ranking of the fast protocols.
+    private void FillOrder(int[]? saved)
+    {
+        var first = Aether.AutoOrder(_connectMs, saved).Select(p => Array.IndexOf(Aether.Presets, p)).ToArray();
+        _order.Items.Clear();
+        foreach (var i in first) _order.Items.Add(Aether.Presets[i], true);
+        foreach (var i in Aether.MenuPresetIndexes.Except(first)) _order.Items.Add(Aether.Presets[i], false);
+    }
+
+    private Button MoveButton(string text, int delta)
+    {
+        var button = new Button { Text = text, AutoSize = true, AccessibleName = $"Move selected protocol {text.ToLower()}" };
+        button.Click += (_, _) =>
+        {
+            int from = _order.SelectedIndex, to = from + delta;
+            if (from < 0 || to < 0 || to >= _order.Items.Count) return;
+            var item = _order.Items[from]; var on = _order.GetItemChecked(from);
+            _order.Items.RemoveAt(from); _order.Items.Insert(to, item);
+            _order.SetItemChecked(to, on); _order.SelectedIndex = to;
+        };
+        return button;
+    }
+
     private void SaveOptions()
     {
         var port = (int)_port.Value;
         if (Aether.ValidPort(port) is string error) { MessageBox.Show(this, error, Text); return; }
+        var order = _order.CheckedItems.Cast<Preset>().Select(p => Array.IndexOf(Aether.Presets, p)).ToArray();
+        if (order.Length == 0) { MessageBox.Show(this, "Check at least one protocol for Auto.", Text); return; }
         try
         {
             var options = CoreOptions.Parse(_arguments.Text, _environment.Text, (int)_timeout.Value);
-            options.Save(); Aether.ProxyPort = port; Options = options; DialogResult = DialogResult.OK; Close();
+            options.Save(); Aether.ProxyPort = port; Aether.SavedOrder = order; Options = options; DialogResult = DialogResult.OK; Close();
         }
         catch (Exception ex) when (ex is System.Text.Json.JsonException or FormatException)
         { MessageBox.Show(this, "Invalid JSON/settings. Use string arrays and string environment values; do not override managed protocols or ports.", Text); }
