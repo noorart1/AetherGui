@@ -62,6 +62,10 @@ void main() {
       expect(find.text('Waiting for logs...'), findsOneWidget);
       expect(tester.takeException(), isNull);
 
+      await tester.tap(find.text('Show activity log'));
+      await tester.pumpAndSettle();
+      expect(find.text('Waiting for logs...'), findsNothing);
+
       await tester.scrollUntilVisible(
         find.text('Core settings'),
         -200,

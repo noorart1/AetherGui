@@ -5,7 +5,7 @@ namespace AetherGui;
 
 public partial class Form1 : Form
 {
-    private const int StartupDelayMs = 3000; // pause before the automatic connect on startup
+    private const int StartupDelayMs = 1000; // pause before the automatic connect on startup
     private const string SettingsKey = @"Software\AetherGui";
 
     private Process? _process;
@@ -26,6 +26,7 @@ public partial class Form1 : Form
             chkStartup.Checked = key?.GetValue("AutoConnect") is 1;
             chkSysProxy.Checked = key?.GetValue("SetSystemProxy") is 1;
             chkPsiphon.Checked = key?.GetValue("RunPsiphon") is not 0; // on unless turned off, as before this option
+            chkShowActivity.Checked = key?.GetValue("ShowActivity") is 1;
             var saved = key?.GetValue("Protocol") is int i && i >= 0 && i <= Aether.Presets.Length ? i : 0;
             cboProtocol.SelectedIndex = Array.IndexOf(_protocolIndexes, saved - 1);
             cboScan.SelectedIndex = key?.GetValue("Scan") is 1 ? 1 : 0;
@@ -35,7 +36,23 @@ public partial class Form1 : Form
         catch { chkStartup.Checked = false; Log("Could not load core settings. Review settings before connecting."); }
         cboProtocol.SelectedIndexChanged += (_, _) => SaveSetting("Protocol", _protocolIndexes[cboProtocol.SelectedIndex] + 1);
         cboScan.SelectedIndexChanged += (_, _) => SaveSetting("Scan", cboScan.SelectedIndex);
+        void UpdateActivityVisibility()
+        {
+            activityCard.Visible = chkShowActivity.Checked;
+            shell.ColumnStyles[0].Width = chkShowActivity.Checked ? 38 : 100;
+            shell.ColumnStyles[1].Width = chkShowActivity.Checked ? 62 : 0;
+            // Without the log only the connection column remains, so shrink the window to fit it.
+            int Px(int v) => IsHandleCreated ? LogicalToDeviceUnits(v) : v; // before the handle, Dpi autoscale scales these later
+            MinimumSize = new Size(Px(chkShowActivity.Checked ? 640 : 320), Px(342));
+            Width = Px(chkShowActivity.Checked ? 840 : 360);
+        }
+        UpdateActivityVisibility();
         chkStartup.CheckedChanged += (_, _) => SaveSetting("AutoConnect", chkStartup.Checked);
+        chkShowActivity.CheckedChanged += (_, _) =>
+        {
+            SaveSetting("ShowActivity", chkShowActivity.Checked);
+            UpdateActivityVisibility();
+        };
         chkSysProxy.CheckedChanged += (_, _) =>
         {
             SaveSetting("SetSystemProxy", chkSysProxy.Checked);

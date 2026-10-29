@@ -1,194 +1,163 @@
 namespace AetherGui;
 
-// Light theme: soft gray window, white panels with thin borders, Windows blue for the main action.
+// Windows 98 look: MS Sans Serif, 3D gray surfaces, navy accents, white sunken log, status bar.
 static class Palette
 {
-    public static readonly Color Background = ColorTranslator.FromHtml("#F3F3F3");
-    public static readonly Color Surface = Color.White;
-    public static readonly Color LogBackground = ColorTranslator.FromHtml("#FAFAFA");
-    public static readonly Color Border = ColorTranslator.FromHtml("#DDDDDD");
-    public static readonly Color ButtonBorder = ColorTranslator.FromHtml("#C8C8C8");
-    public static readonly Color Hover = ColorTranslator.FromHtml("#F0F0F0");
-    public static readonly Color Pressed = ColorTranslator.FromHtml("#E5E5E5");
-    public static readonly Color MutedText = ColorTranslator.FromHtml("#605E5C");
-    public static readonly Color Accent = ColorTranslator.FromHtml("#0078D7");
-    public static readonly Color AccentHover = ColorTranslator.FromHtml("#106EBE");
-    public static readonly Color AccentPressed = ColorTranslator.FromHtml("#005A9E");
-    public static readonly Color Connected = ColorTranslator.FromHtml("#107C10");
-    public static readonly Color Connecting = ColorTranslator.FromHtml("#CA5010");
-    public static readonly Color Disconnected = ColorTranslator.FromHtml("#C42B1C");
+    public static readonly Color Background = ColorTranslator.FromHtml("#C0C0C0");
+    public static readonly Color LogBackground = Color.White;
+    public static readonly Color MutedText = ColorTranslator.FromHtml("#404040");
+    public static readonly Color Accent = ColorTranslator.FromHtml("#000080");
+    public static readonly Color AccentPressed = ColorTranslator.FromHtml("#800080");
+    public static readonly Color Connected = ColorTranslator.FromHtml("#008000");
+    public static readonly Color Connecting = ColorTranslator.FromHtml("#806000");
+    public static readonly Color Disconnected = ColorTranslator.FromHtml("#800000");
 }
 
 partial class Form1
 {
     private Button btnConnect = null!;
-    private Button btnInfo = null!;
-    private Button btnCoreSettings = null!;
-    private Button btnCoreInput = null!;
-    private Button btnUpdates = null!;
+    private ToolStripMenuItem btnInfo = null!;
+    private ToolStripMenuItem btnCoreSettings = null!;
+    private ToolStripMenuItem btnCoreInput = null!;
+    private ToolStripMenuItem btnUpdates = null!;
     private Label lblStatus = null!;
-    private Label lblDelay = null!;
+    private ToolStripStatusLabel lblDelay = null!;
     private Label lblProtocol = null!;
     private ComboBox cboProtocol = null!;
     private Label lblScan = null!;
     private ComboBox cboScan = null!;
     private RichTextBox txtLog = null!;
-    private CheckBox chkStartup = null!;
+    private ToolStripMenuItem chkStartup = null!;
     private CheckBox chkSysProxy = null!;
-    private CheckBox chkPsiphon = null!;
+    private ToolStripMenuItem chkPsiphon = null!;
+    private ToolStripMenuItem chkShowActivity = null!;
     private ProgressBar prgConnecting = null!;
+    private Panel activityCard = null!;
+    private TableLayoutPanel shell = null!;
 
-    // Flat button with a thin border; the primary one is filled blue with white text.
-    private static Button FlatButton(string text, bool primary = false)
+    // Raised 3D push button; the primary one is bold, like a classic default button.
+    private static Button ClassicButton(string text, bool primary = false)
     {
         var button = new Button
         {
-            Text = text, FlatStyle = FlatStyle.Flat, UseVisualStyleBackColor = false, Cursor = Cursors.Hand,
-            AutoSize = true, MinimumSize = new Size(110, 30), Margin = new Padding(0, 0, 8, 8),
-            BackColor = primary ? Palette.Accent : Palette.Surface, ForeColor = primary ? Color.White : SystemColors.ControlText
+            Text = text, FlatStyle = FlatStyle.Standard, UseVisualStyleBackColor = false, BackColor = Palette.Background,
+            AutoSize = true, MinimumSize = new Size(90, 23), Margin = new Padding(0, 0, 6, 6)
         };
-        button.FlatAppearance.BorderSize = 1;
-        button.FlatAppearance.BorderColor = primary ? Palette.Accent : Palette.ButtonBorder;
-        button.FlatAppearance.MouseOverBackColor = primary ? Palette.AccentHover : Palette.Hover;
-        button.FlatAppearance.MouseDownBackColor = primary ? Palette.AccentPressed : Palette.Pressed;
+        if (primary) button.Font = new Font("Microsoft Sans Serif", 8.25F, FontStyle.Bold);
         return button;
     }
 
-    // White panel with a thin light gray border, named so tests can find it.
+    // Gray panel with an etched 3D frame, named so tests can find it.
     private static Panel Card(string name)
     {
-        var card = new Panel { Name = name, Dock = DockStyle.Fill, BackColor = Palette.Surface, Padding = new Padding(16) };
-        card.Paint += (_, e) =>
-        {
-            using var pen = new Pen(Palette.Border);
-            e.Graphics.DrawRectangle(pen, 0, 0, card.Width - 1, card.Height - 1);
-        };
+        var card = new Panel { Name = name, Dock = DockStyle.Fill, BackColor = Palette.Background, Padding = new Padding(8) };
+        card.Paint += (_, e) => ControlPaint.DrawBorder3D(e.Graphics, card.ClientRectangle, Border3DStyle.Etched);
         card.Resize += (_, _) => card.Invalidate();
         return card;
     }
 
     private void InitializeComponent()
     {
-        Font = new Font("Segoe UI", 9.75F);
-        var bold = new Font("Segoe UI Semibold", 9.75F);
-        var header = new Font("Segoe UI Semibold", 11F);
+        Font = new Font("Microsoft Sans Serif", 8.25F);
+        var bold = new Font("Microsoft Sans Serif", 8.25F, FontStyle.Bold);
+        var header = new Font("Microsoft Sans Serif", 8.25F, FontStyle.Bold);
 
-        btnConnect = FlatButton("Connect securely", primary: true);
+        btnConnect = ClassicButton("Connect securely", primary: true);
         btnConnect.AutoSize = false;
         btnConnect.Dock = DockStyle.Top;
-        btnConnect.Height = 42;
-        btnConnect.Font = bold;
-        btnConnect.Margin = new Padding(0, 8, 0, 12);
+        btnConnect.Height = 30;
+                btnConnect.Margin = new Padding(0, 6, 0, 6);
         btnConnect.Click += btnConnect_Click;
 
-        btnInfo = FlatButton("Proxy info");
-        btnInfo.AccessibleDescription = "Write proxy ports and security recommendations to the activity log";
+        // Rarely used actions and options live in a classic menu bar so the window shows only what connecting needs.
+        btnInfo = new ToolStripMenuItem("&Proxy info") { AccessibleDescription = "Write proxy ports and security recommendations to the activity log" };
         btnInfo.Click += (_, _) => ShowProxyInfo();
-        btnCoreSettings = FlatButton("Core settings");
+        btnCoreSettings = new ToolStripMenuItem("Core &settings...");
         btnCoreSettings.Click += (_, _) => ShowCoreSettings();
-        btnCoreInput = FlatButton("Core input");
-        btnCoreInput.Enabled = false;
+        btnCoreInput = new ToolStripMenuItem("Core &input...") { Enabled = false };
         btnCoreInput.Click += async (_, _) => await SendCoreInputAsync();
-        btnUpdates = FlatButton("Updates");
-        btnUpdates.AccessibleDescription = "Check for a new AetherGui release and a newer core";
+        btnUpdates = new ToolStripMenuItem("Check for &updates...") { AccessibleDescription = "Check for a new AetherGui release and a newer core" };
         btnUpdates.Click += async (_, _) => await CheckUpdatesAsync(interactive: true);
 
-        lblStatus = new Label { Text = "●  Disconnected", ForeColor = Palette.Disconnected, AutoSize = true, Font = new Font("Segoe UI Semibold", 13F), Margin = new Padding(0, 0, 0, 0), AccessibleName = "Connection status: Disconnected" };
-        lblDelay = new Label { Text = "Delay: -", ForeColor = Palette.MutedText, AutoSize = true, Margin = new Padding(12, 6, 0, 0) };
+        lblStatus = new Label { Text = "●  Disconnected", ForeColor = Palette.Disconnected, AutoSize = true, Font = new Font("Microsoft Sans Serif", 10F, FontStyle.Bold), Margin = new Padding(0, 0, 0, 0), AccessibleName = "Connection status: Disconnected" };
+        // Windows 98 style status bar along the bottom, with a sunken pane and a sizing grip.
+        lblDelay = new ToolStripStatusLabel("Delay: -") { Spring = true, TextAlign = ContentAlignment.MiddleLeft, BorderSides = ToolStripStatusLabelBorderSides.All, BorderStyle = Border3DStyle.SunkenOuter };
+        var statusBar = new StatusStrip { RenderMode = ToolStripRenderMode.System, BackColor = Palette.Background };
+        statusBar.Items.Add(lblDelay);
+        // Tall enough to show the classic chunky blocks.
         prgConnecting = new ProgressBar
         {
             Style = SystemInformation.UIEffectsEnabled ? ProgressBarStyle.Marquee : ProgressBarStyle.Continuous,
-            Value = 100, MarqueeAnimationSpeed = 30, Dock = DockStyle.Top, Height = 4, Visible = false,
+            Value = 100, MarqueeAnimationSpeed = 30, Dock = DockStyle.Top, Height = 14, Visible = false,
             Margin = new Padding(0, 4, 0, 0)
         };
 
-        lblProtocol = new Label { Text = "Protocol", Font = bold, AutoSize = true, Margin = new Padding(0, 12, 0, 4) };
+        lblProtocol = new Label { Text = "Protocol", Font = bold, AutoSize = true, Margin = new Padding(0, 8, 0, 2) };
         cboProtocol = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Top, DropDownWidth = 360, Margin = new Padding(0, 0, 0, 4), AccessibleName = "Connection protocol" };
-        lblScan = new Label { Text = "Server search", Font = bold, AutoSize = true, Margin = new Padding(0, 12, 0, 4) };
+        lblScan = new Label { Text = "Server search", Font = bold, AutoSize = true, Margin = new Padding(0, 6, 0, 2) };
         cboScan = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Top, DropDownWidth = 360, Margin = new Padding(0, 0, 0, 4), AccessibleName = "Server search mode" };
 
-        chkStartup = new CheckBox { Text = "Connect on startup", AutoSize = true, Margin = new Padding(0, 14, 0, 0) };
-        chkSysProxy = new CheckBox { Text = "Set Windows system proxy", AutoSize = true, Margin = new Padding(0, 6, 0, 0) };
-        chkPsiphon = new CheckBox { Text = "Open Psiphon after connecting", AutoSize = true, Margin = new Padding(0, 6, 0, 0) };
+        chkSysProxy = new CheckBox { Text = "Set Windows system proxy", AutoSize = true, Margin = new Padding(0, 8, 0, 0) };
+        chkStartup = new ToolStripMenuItem("&Connect on startup") { CheckOnClick = true };
+        chkPsiphon = new ToolStripMenuItem("Open &Psiphon after connecting") { CheckOnClick = true };
+        chkShowActivity = new ToolStripMenuItem("Show &activity log") { CheckOnClick = true };
+
+        var menu = new MenuStrip { RenderMode = ToolStripRenderMode.System, BackColor = Palette.Background, Dock = DockStyle.Top };
+        menu.Items.AddRange([
+            new ToolStripMenuItem("&Options", null, chkStartup, chkPsiphon, chkShowActivity),
+            new ToolStripMenuItem("&Tools", null, btnCoreSettings, btnCoreInput, btnInfo),
+            new ToolStripMenuItem("&Help", null, btnUpdates)]);
 
         var status = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top, WrapContents = true, Margin = Padding.Empty };
-        status.Controls.AddRange([lblStatus, lblDelay]);
-        var helper = new Label
-        {
-            Text = "Choose a route, then connect. Auto switches fast routes when a connection drops.",
-            ForeColor = Palette.MutedText, Anchor = AnchorStyles.Left | AnchorStyles.Right, AutoSize = true, Margin = Padding.Empty
-        };
+        status.Controls.Add(lblStatus);
 
-        var controlLayout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, RowCount = 11, Margin = Padding.Empty };
+        var controlLayout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, RowCount = 8, Margin = Padding.Empty };
         controlLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); // fit the panel, never the content
-        for (var i = 0; i < 11; i++) controlLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        for (var i = 0; i < 8; i++) controlLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         // Connect sits right under the status so it stays in view; the rest scrolls if large text needs more room.
         controlLayout.Controls.Add(status, 0, 0);
         controlLayout.Controls.Add(prgConnecting, 0, 1);
         controlLayout.Controls.Add(btnConnect, 0, 2);
-        controlLayout.Controls.Add(helper, 0, 3);
-        controlLayout.Controls.Add(lblProtocol, 0, 4);
-        controlLayout.Controls.Add(cboProtocol, 0, 5);
-        controlLayout.Controls.Add(lblScan, 0, 6);
-        controlLayout.Controls.Add(cboScan, 0, 7);
-        controlLayout.Controls.Add(chkStartup, 0, 8);
-        controlLayout.Controls.Add(chkSysProxy, 0, 9);
-        controlLayout.Controls.Add(chkPsiphon, 0, 10);
+        controlLayout.Controls.Add(lblProtocol, 0, 3);
+        controlLayout.Controls.Add(cboProtocol, 0, 4);
+        controlLayout.Controls.Add(lblScan, 0, 5);
+        controlLayout.Controls.Add(cboScan, 0, 6);
+        controlLayout.Controls.Add(chkSysProxy, 0, 7);
 
-        // Secondary actions as an even 2x2 grid that always fits the panel width.
-        var actions = new TableLayoutPanel { AutoSize = true, Dock = DockStyle.Top, ColumnCount = 2, RowCount = 2, Margin = new Padding(0, 12, 0, 0) };
-        actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        foreach (var (button, i) in new[] { btnCoreSettings, btnCoreInput, btnInfo, btnUpdates }.Select((b, i) => (b, i)))
-        {
-            button.AutoSize = false;
-            button.Dock = DockStyle.Fill;
-            button.MinimumSize = new Size(0, 32);
-            button.AutoEllipsis = true;
-            button.Margin = new Padding(i % 2 == 0 ? 0 : 4, 0, i % 2 == 0 ? 4 : 0, 8);
-            actions.Controls.Add(button, i % 2, i / 2);
-        }
-
-        var leftStack = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
-        leftStack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        leftStack.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        leftStack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         var controlScroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Margin = Padding.Empty }; // scrollbar only when needed
         controlScroll.Controls.Add(controlLayout);
-        leftStack.Controls.Add(controlScroll, 0, 0);
-        leftStack.Controls.Add(actions, 0, 1);
 
-        // Docked controls lay out last-added first: the header takes the top, then the body fills the rest.
         var connectionCard = Card("connectionPanel");
-        connectionCard.Margin = new Padding(0, 0, 6, 0);
-        connectionCard.Controls.Add(leftStack);
-        connectionCard.Controls.Add(new Label { Text = "Connection", Font = header, Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0, 0, 0, 10) });
+        connectionCard.Margin = new Padding(0, 0, 4, 0);
+        connectionCard.Controls.Add(controlScroll);
 
         txtLog = new RichTextBox
         {
-            Dock = DockStyle.Fill, ReadOnly = true, BorderStyle = BorderStyle.None, BackColor = Palette.LogBackground,
-            Font = new Font("Consolas", 9.5F), DetectUrls = true, AccessibleName = "Connection activity log"
+            Dock = DockStyle.Fill, ReadOnly = true, BorderStyle = BorderStyle.Fixed3D, BackColor = Palette.LogBackground,
+            Font = new Font("Courier New", 8.25F), DetectUrls = true, AccessibleName = "Connection activity log"
         };
-        // Thin light gray border: a 1px gray frame around a padded light panel holding the borderless log.
-        var logInner = new Panel { Dock = DockStyle.Fill, BackColor = Palette.LogBackground, Padding = new Padding(8) };
-        logInner.Controls.Add(txtLog);
-        var logFrame = new Panel { Dock = DockStyle.Fill, BackColor = Palette.Border, Padding = new Padding(1) };
-        logFrame.Controls.Add(logInner);
+        // Sunken white log, as in classic Windows.
+        var logFrame = new Panel { Dock = DockStyle.Fill, Padding = Padding.Empty };
+        logFrame.Controls.Add(txtLog);
 
-        var clear = new LinkLabel { Text = "Clear logs", AutoSize = true, Anchor = AnchorStyles.Right, LinkColor = Palette.Accent, ActiveLinkColor = Palette.AccentPressed, LinkBehavior = LinkBehavior.HoverUnderline, AccessibleDescription = "Clear the activity log" };
-        clear.LinkClicked += (_, _) => txtLog.Clear();
-        var logHeader = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, RowCount = 1, Padding = new Padding(0, 0, 0, 10) };
+        var clear = ClassicButton("&Clear");
+        clear.Anchor = AnchorStyles.Right;
+        clear.MinimumSize = new Size(75, 23);
+        clear.Margin = Padding.Empty;
+        clear.AccessibleDescription = "Clear the activity log";
+        clear.Click += (_, _) => txtLog.Clear();
+        var logHeader = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, RowCount = 1, Padding = new Padding(0, 0, 0, 6) };
         logHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         logHeader.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         logHeader.Controls.Add(new Label { Text = "Activity", Font = header, AutoSize = true, Anchor = AnchorStyles.Left, Margin = Padding.Empty }, 0, 0);
         logHeader.Controls.Add(clear, 1, 0);
 
-        var activityCard = Card("activityPanel");
-        activityCard.Margin = new Padding(6, 0, 0, 0);
+        activityCard = Card("activityPanel");
+        activityCard.Margin = new Padding(4, 0, 0, 0);
         activityCard.Controls.Add(logFrame);
         activityCard.Controls.Add(logHeader);
 
-        var shell = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 2, RowCount = 1, BackColor = Palette.Background };
+        shell = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(8), ColumnCount = 2, RowCount = 1, BackColor = Palette.Background };
         shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38)); // a share, not pixels: follows display scaling
         shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62));
         shell.Controls.Add(connectionCard, 0, 0);
@@ -197,10 +166,14 @@ partial class Form1
         Text = "Aether — Private network client";
         AutoScaleMode = AutoScaleMode.Dpi;
         BackColor = Palette.Background;
-        ClientSize = new Size(920, 560);
-        MinimumSize = new Size(720, 520);
+        ClientSize = new Size(820, 322);
+        MinimumSize = new Size(640, 342);
         StartPosition = FormStartPosition.CenterScreen;
         KeyPreview = true;
+        // Docked controls lay out last-added first: the menu takes the top, then the shell fills the rest.
         Controls.Add(shell);
+        Controls.Add(statusBar);
+        Controls.Add(menu);
+        MainMenuStrip = menu;
     }
 }

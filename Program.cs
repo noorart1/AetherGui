@@ -28,6 +28,7 @@ static class Program
 
         SystemProxy.Disable(); // leftover from a previous run that died with the machine (power loss, etc.)
         ApplicationConfiguration.Initialize();
+        Application.VisualStyleState = System.Windows.Forms.VisualStyles.VisualStyleState.NoneEnabled; // classic 3D controls
         Application.Run(new Form1());
     }
 }

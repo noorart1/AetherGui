@@ -119,6 +119,7 @@ static class Checks
         catch (FormatException) { classicRejected = true; }
         Check(classicRejected, "Classic gool cannot override selected protocol");
         ApplicationConfiguration.Initialize();
+        Application.VisualStyleState = System.Windows.Forms.VisualStyles.VisualStyleState.NoneEnabled;
         // Larger text stands in for 125-200% display scaling: the left panel must grow with it, never slide under the log.
         static IEnumerable<Control> All(Control c) => c.Controls.Cast<Control>().SelectMany(x => All(x).Prepend(x));
         static Rectangle InForm(Control c) // bounds in form client coordinates, without needing a shown window
@@ -136,6 +137,8 @@ static class Checks
             var connect = InForm(All(main).OfType<Button>().First(b => b.Text == "Connect securely"));
             var boxes = new[] { "connectionPanel", "activityPanel" }.Select(n => InForm(main.Controls.Find(n, true)[0])).ToArray();
             Check(boxes[0].Contains(connect) && !connect.IntersectsWith(boxes[1]), $"Connect button inside its panel at {scale:0.#}x text");
+            Check(main.MainMenuStrip!.Items.Cast<ToolStripMenuItem>().SelectMany(m => m.DropDownItems.OfType<ToolStripMenuItem>())
+                .Any(i => i.Text == "Show &activity log" && i.CheckOnClick), "Activity log visibility is user-selectable");
         }
         {
             // a b* c d* e  -Up->  b* a d* c e  -Up->  b* d* a c e  -Down x2->  a c b* d* e

@@ -63,7 +63,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   static const startupDelayMs =
-      3000; // pause before the automatic connect on startup
+      1000; // pause before the automatic connect on startup
   static const red = Palette.disconnected,
       orange = Palette.connecting,
       seaGreen = Palette.connected;
@@ -75,6 +75,7 @@ class _HomePageState extends State<HomePage> {
   int _preset = -1; // index into Aether.presets, -1 = Auto (rotate through all)
   String _scan = 'turbo'; // AETHER_SCAN: turbo or balanced
   bool _vpn = true; // full-device VPN (tun); false = only serve the local proxy
+  bool _showActivity = true;
   String _status = 'Disconnected';
   Color _statusColor = red;
   String _delay = ''; // e.g. '24 ms', shown in the button while connected
@@ -105,6 +106,7 @@ class _HomePageState extends State<HomePage> {
       _preset = i >= -1 && i < Aether.presets.length ? i : -1;
       if (s.contains('Scan=balanced')) _scan = 'balanced';
       _vpn = !s.contains('Mode=proxy');
+      _showActivity = !s.contains('ShowActivity=0');
       final http = RegExp(r'HttpPort=(\d+)').firstMatch(s)?.group(1) ?? '';
       final socks = RegExp(r'SocksPort=(\d+)').firstMatch(s)?.group(1) ?? '';
       if (Aether.portError(http, int.tryParse(socks) ?? 0) == null &&
@@ -161,6 +163,7 @@ class _HomePageState extends State<HomePage> {
   void _saveSettings() => _settings.writeAsStringSync(
     'AutoConnect=${_autoConnect ? 1 : 0}\nPreset=$_preset\nScan=$_scan\n'
     'Mode=${_vpn ? 'vpn' : 'proxy'}\n'
+    'ShowActivity=${_showActivity ? 1 : 0}\n'
     'HttpPort=${Aether.httpPort}\nSocksPort=${Aether.socksPort}\n'
     'ConnectMs=${Aether.formatConnectMs(_connectMs)}\n'
     'AutoOrder=${_order.join(',')}\n',
@@ -886,53 +889,65 @@ class _HomePageState extends State<HomePage> {
             title: const Text('Check for updates'),
             onTap: () => _checkUpdates(interactive: true),
           ),
-          section('Activity'),
-          Card(
-            clipBehavior: Clip.antiAlias,
-            child: SizedBox(
-              height: 320,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: IconButton(
-                      tooltip: 'Clear activity',
-                      onPressed: _lines.isEmpty
-                          ? null
-                          : () => setState(_lines.clear),
-                      icon: const Icon(Icons.delete_outline_rounded),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(Icons.receipt_long_outlined),
+            title: const Text('Show activity log'),
+            value: _showActivity,
+            onChanged: (value) {
+              setState(() => _showActivity = value);
+              _saveSettings();
+            },
+          ),
+          if (_showActivity) ...[
+            section('Activity'),
+            Card(
+              clipBehavior: Clip.antiAlias,
+              child: SizedBox(
+                height: 320,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: IconButton(
+                        tooltip: 'Clear activity',
+                        onPressed: _lines.isEmpty
+                            ? null
+                            : () => setState(_lines.clear),
+                        icon: const Icon(Icons.delete_outline_rounded),
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    child: SelectionArea(
-                      child: ListView.builder(
-                        controller: _scroll,
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                        itemCount: _lines.isEmpty ? 1 : _lines.length,
-                        itemBuilder: (_, i) => Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Text(
-                            _lines.isEmpty
-                                ? 'Waiting for logs...'
-                                : _lines[i].$1,
-                            style: TextStyle(
-                              color: _lines.isEmpty
-                                  ? Palette.secondaryText
-                                  : _lines[i].$2 ?? Palette.secondaryText,
-                              fontFamily: 'monospace',
-                              fontSize: 12,
-                              height: 1.45,
+                    Expanded(
+                      child: SelectionArea(
+                        child: ListView.builder(
+                          controller: _scroll,
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                          itemCount: _lines.isEmpty ? 1 : _lines.length,
+                          itemBuilder: (_, i) => Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Text(
+                              _lines.isEmpty
+                                  ? 'Waiting for logs...'
+                                  : _lines[i].$1,
+                              style: TextStyle(
+                                color: _lines.isEmpty
+                                    ? Palette.secondaryText
+                                    : _lines[i].$2 ?? Palette.secondaryText,
+                                fontFamily: 'monospace',
+                                fontSize: 12,
+                                height: 1.45,
+                              ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
