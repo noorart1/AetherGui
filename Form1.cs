@@ -64,7 +64,7 @@ public partial class Form1 : Form
             if (!chkStartup.Checked) return;
             Log($"Auto-connecting in {StartupDelayMs / 1000}s...");
             await Task.Delay(StartupDelayMs);
-            if (chkStartup.Checked && _cts == null) btnConnect_Click(null, EventArgs.Empty);
+            if (chkStartup.Checked && _cts == null && btnConnect.Enabled) btnConnect_Click(null, EventArgs.Empty); // not while a core update installs
         };
         FormClosing += (_, _) => { _cts?.Cancel(); KillProcess(); Psiphon.Kill(); SystemProxy.Disable(); };
     }
@@ -242,31 +242,38 @@ public partial class Form1 : Form
         if (dialog.ShowDialog(this) == DialogResult.OK) _coreOptions = dialog.Options;
     }
 
-    // The startup check only logs what is new; the button also offers to install it.
-    // The core is replaced only while disconnected, since a running aether.exe cannot be overwritten.
+    // Updates are offered in a dialog, at startup too, so they are seen with the log hidden; only the
+    // menu check also reports "up to date" and failures. The core is replaced only while disconnected,
+    // since a running aether.exe cannot be overwritten.
     private async Task CheckUpdatesAsync(bool interactive)
     {
         if (interactive) Log("Checking for updates...");
         Aether.Updates u;
         try { u = await Aether.CheckUpdatesAsync(CancellationToken.None); }
-        catch (Exception ex) { if (interactive) Log($"Update check failed: {ex.Message}"); return; }
+        catch (Exception ex)
+        {
+            if (!interactive || IsDisposed) return;
+            Log($"Update check failed: {ex.Message}");
+            MessageBox.Show(this, $"Could not check for updates.\n\n{ex.Message}", "Check for updates", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
         if (IsDisposed) return;
 
         if (u.GuiNewer)
         {
             Log($"AetherGui {u.LatestGui} is available (you have {Aether.AppVersion}).", Color.Blue);
-            if (interactive && u.GuiPage?.StartsWith("https://github.com/") == true && MessageBox.Show(this, $"AetherGui {u.LatestGui} is available. Open the download page?", "Update available",
+            if (u.GuiPage?.StartsWith("https://github.com/") == true && MessageBox.Show(this, $"AetherGui {u.LatestGui} is available (you have {Aether.AppVersion}). Open the download page?", "Update available",
                     MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
                 Process.Start(new ProcessStartInfo(u.GuiPage!) { UseShellExecute = true });
         }
         if (u.CoreNewer)
         {
             Log($"Core {u.LatestCore} is available (you have {u.Core?.ToString() ?? "none"}).", Color.Blue);
-            if (!interactive) Log("Click 'Updates' to install it.");
-            else if (_cts != null) Log("Disconnect first to update the core.");
+            if (_cts != null) { if (interactive) MessageBox.Show(this, $"Core {u.LatestCore} is available. Disconnect first, then check for updates again.", "Update available"); }
             else if (MessageBox.Show(this, $"Update the core to {u.LatestCore}?", "Update available",
                          MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
             {
+                if (_cts != null) { Log("Disconnect first to update the core."); return; } // auto-connect may have started while asking
                 btnConnect.Enabled = btnUpdates.Enabled = false;
                 if (await Aether.InstallCoreAsync($"Updating the core to {u.LatestCore}...", Log, CancellationToken.None))
                     Log($"Core is now {await Aether.InstalledCoreVersionAsync(CancellationToken.None)}.");
@@ -274,7 +281,11 @@ public partial class Form1 : Form
             }
         }
         if (interactive && !u.GuiNewer && !u.CoreNewer)
-            Log($"Up to date: AetherGui {Aether.AppVersion}, core {u.Core?.ToString() ?? "not installed"}.");
+        {
+            var upToDate = $"Up to date: AetherGui {Aether.AppVersion}, core {u.Core?.ToString() ?? "not installed"}.";
+            Log(upToDate);
+            MessageBox.Show(this, upToDate, "Check for updates", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
     }
 
     private async Task SendCoreInputAsync()
@@ -307,6 +318,7 @@ public partial class Form1 : Form
 
     private void ShowProxyInfo()
     {
+        chkShowLog.Checked = true; // the info is written to the log
         var secrets = Directory.GetFiles(AppContext.BaseDirectory, "aether*.toml").Length;
         var head = Color.Blue; Color? info = null; var tip = Color.DarkOrange;
         Log("=== Proxy info ===", head);

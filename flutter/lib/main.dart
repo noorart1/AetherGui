@@ -338,8 +338,16 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // The startup check only logs a new release; the button also offers to open its page.
+  // A new release is offered in a dialog, at startup too, so it is seen with the log hidden;
+  // only the button also reports "up to date" and failures.
   Future<void> _checkUpdates({required bool interactive}) async {
+    void tell(String msg) {
+      _log(msg);
+      if (interactive && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      }
+    }
+
     if (interactive) _log('Checking for updates...');
     try {
       final have = await Aether.appVersion();
@@ -351,17 +359,17 @@ class _HomePageState extends State<HomePage> {
           mine == null ||
           theirs == null ||
           !Aether.isNewer(theirs, mine)) {
-        if (interactive) _log('Up to date: Aether $have.');
+        if (interactive) tell('Up to date: Aether $have.');
         return;
       }
       _log('Aether ${latest.$1} is available (you have $have).', Colors.blue);
-      if (!interactive || !latest.$2.startsWith('https://github.com/')) return;
+      if (!latest.$2.startsWith('https://github.com/')) return;
       final open = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Update available'),
           content: Text(
-            'Aether ${latest.$1} is available. Open the download page?',
+            'Aether ${latest.$1} is available (you have $have). Open the download page?',
           ),
           actions: [
             TextButton(
@@ -377,11 +385,15 @@ class _HomePageState extends State<HomePage> {
       );
       if (open == true) await Aether.openUrl(latest.$2);
     } catch (e) {
-      if (interactive) _log('Update check failed: $e');
+      if (interactive) tell('Update check failed: $e');
     }
   }
 
   void _showProxyInfo() {
+    if (!_showActivity) {
+      setState(() => _showActivity = true); // the info is written to the log
+      _saveSettings();
+    }
     const head = Colors.blue, info = null, tip = Colors.orange;
     final secrets = Directory(Aether.dir)
         .listSync()
