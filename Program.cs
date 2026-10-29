@@ -13,6 +13,7 @@ static class Program
             try { Process.GetProcessById(int.Parse(args[1])).WaitForExit(); } catch { }
             foreach (var p in Process.GetProcessesByName("aether"))
                 try { p.Kill(true); } catch { }
+            Psiphon.Kill();
             SystemProxy.Disable();
             return;
         }

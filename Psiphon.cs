@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -10,6 +11,14 @@ static class Psiphon
 {
     public static readonly string Exe = Path.Combine(AppContext.BaseDirectory, "psiphon3.exe");
     private static readonly string[] Urls = ["https://psiphon.ca/psiphon3.exe", "https://s3.amazonaws.com/psiphon/web/mjr4-p23r-puwl/psiphon3.exe"];
+
+    // Only the copy beside this exe, so a separately installed Psiphon is left alone.
+    // Waits so SystemProxy.Disable right after sees it gone and clears the proxy it left behind.
+    public static void Kill()
+    {
+        foreach (var p in Process.GetProcessesByName("psiphon3"))
+            try { if (string.Equals(p.MainModule?.FileName, Exe, StringComparison.OrdinalIgnoreCase)) { p.Kill(true); p.WaitForExit(2000); } } catch { }
+    }
 
     public static async Task<bool> EnsureDownloadedAsync(Action<string> log, CancellationToken ct)
     {

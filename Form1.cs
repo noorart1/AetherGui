@@ -49,7 +49,7 @@ public partial class Form1 : Form
             await Task.Delay(StartupDelayMs);
             if (chkStartup.Checked && _cts == null) btnConnect_Click(null, EventArgs.Empty);
         };
-        FormClosing += (_, _) => { _cts?.Cancel(); KillProcess(); SystemProxy.Disable(); KillPsiphon(); };
+        FormClosing += (_, _) => { _cts?.Cancel(); KillProcess(); Psiphon.Kill(); SystemProxy.Disable(); };
     }
 
     private static void SaveSetting(string name, bool value) => SaveSetting(name, value ? 1 : 0);
@@ -172,13 +172,6 @@ public partial class Form1 : Form
         }
         try { Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true, WorkingDirectory = AppContext.BaseDirectory }); }
         catch (Exception ex) { Log($"psiphon3: {ex.Message}"); }
-    }
-
-    // Only the copy beside this exe, so a separately installed Psiphon is left alone.
-    private static void KillPsiphon()
-    {
-        foreach (var p in Process.GetProcessesByName("psiphon3"))
-            try { if (string.Equals(p.MainModule?.FileName, Psiphon.Exe, StringComparison.OrdinalIgnoreCase)) p.Kill(true); } catch { }
     }
 
     private bool _watchdogStarted;
