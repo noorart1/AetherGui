@@ -27,7 +27,7 @@ public partial class Form1 : Form
             chkStartup.Checked = key?.GetValue("AutoConnect") is 1;
             chkSysProxy.Checked = key?.GetValue("SetSystemProxy") is 1;
             chkPsiphon.Checked = key?.GetValue("RunPsiphon") is not 0; // on unless turned off, as before this option
-            chkShowActivity.Checked = key?.GetValue("ShowActivity") is 1;
+            chkShowLog.Checked = key?.GetValue("ShowActivity") is 1;
             var saved = key?.GetValue("Protocol") is int i && i >= 0 && i <= Aether.Presets.Length ? i : 0;
             cboProtocol.SelectedIndex = Array.IndexOf(_protocolIndexes, saved - 1);
             cboScan.SelectedIndex = key?.GetValue("Scan") is 1 ? 1 : 0;
@@ -37,22 +37,12 @@ public partial class Form1 : Form
         catch { chkStartup.Checked = false; Log("Could not load core settings. Review settings before connecting."); }
         cboProtocol.SelectedIndexChanged += (_, _) => SaveSetting("Protocol", _protocolIndexes[cboProtocol.SelectedIndex] + 1);
         cboScan.SelectedIndexChanged += (_, _) => SaveSetting("Scan", cboScan.SelectedIndex);
-        void UpdateActivityVisibility()
-        {
-            activityCard.Visible = chkShowActivity.Checked;
-            shell.ColumnStyles[0].Width = chkShowActivity.Checked ? 38 : 100;
-            shell.ColumnStyles[1].Width = chkShowActivity.Checked ? 62 : 0;
-            // Without the log only the connection column remains, so shrink the window to fit it.
-            int Px(int v) => IsHandleCreated ? LogicalToDeviceUnits(v) : v; // before the handle, Dpi autoscale scales these later
-            MinimumSize = new Size(Px(chkShowActivity.Checked ? 640 : 320), Px(342));
-            Width = Px(chkShowActivity.Checked ? 840 : 360);
-        }
-        UpdateActivityVisibility();
         chkStartup.CheckedChanged += (_, _) => SaveSetting("AutoConnect", chkStartup.Checked);
-        chkShowActivity.CheckedChanged += (_, _) =>
+        if (chkShowLog.Checked) ShowLog(true); // starts hidden
+        chkShowLog.CheckedChanged += (_, _) =>
         {
-            SaveSetting("ShowActivity", chkShowActivity.Checked);
-            UpdateActivityVisibility();
+            SaveSetting("ShowActivity", chkShowLog.Checked);
+            ShowLog(chkShowLog.Checked);
         };
         chkSysProxy.CheckedChanged += (_, _) =>
         {
@@ -77,6 +67,31 @@ public partial class Form1 : Form
             if (chkStartup.Checked && _cts == null) btnConnect_Click(null, EventArgs.Empty);
         };
         FormClosing += (_, _) => { _cts?.Cancel(); KillProcess(); Psiphon.Kill(); SystemProxy.Disable(); };
+    }
+
+    private static readonly Bitmap PsiphonIcon = new(typeof(Form1).Assembly.GetManifestResourceStream("psiphon.png")!);
+
+    // Psiphon presets get Psiphon's logo; every item is indented the same so the names line up.
+    private void DrawProtocolItem(object? sender, DrawItemEventArgs e)
+    {
+        e.DrawBackground();
+        if (e.Index < 0) return;
+        var text = cboProtocol.GetItemText(cboProtocol.Items[e.Index]) ?? "";
+        int size = e.Bounds.Height - 2, x = e.Bounds.X + 2;
+        if (text.Contains("Psiphon")) e.Graphics.DrawImage(PsiphonIcon, x, e.Bounds.Y + 1, size, size);
+        var textBounds = Rectangle.FromLTRB(x + size + 4, e.Bounds.Top, e.Bounds.Right, e.Bounds.Bottom);
+        TextRenderer.DrawText(e.Graphics, text, e.Font, textBounds, e.ForeColor, TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+        e.DrawFocusRectangle();
+    }
+
+    // The window grows to make room for the log and shrinks back when it is hidden.
+    private void ShowLog(bool show)
+    {
+        int Px(int v) => IsHandleCreated ? LogicalToDeviceUnits(v) : v; // before the handle, Dpi autoscale scales these later
+        var change = show ? Px(120) : -txtMiniLog.Height;
+        txtMiniLog.Visible = show;
+        MinimumSize = new Size(MinimumSize.Width, MinimumSize.Height + (show ? Px(50) : -Px(50)));
+        Height += change;
     }
 
     private static void SaveSetting(string name, bool value) => SaveSetting(name, value ? 1 : 0);
@@ -325,14 +340,11 @@ public partial class Form1 : Form
             return;
         }
         color ??= LogColor(msg);
-        foreach (var box in new[] { txtLog, txtMiniLog })
-        {
-            box.SelectionStart = box.TextLength;
-            box.SelectionColor = color.Value;
-            box.AppendText($"{(box == txtLog ? $"[{DateTime.Now:HH:mm:ss}]" : $"{DateTime.Now:HH:mm}")} {msg}{Environment.NewLine}");
-            box.SelectionColor = box.ForeColor;
-            box.ScrollToCaret();
-        }
+        txtMiniLog.SelectionStart = txtMiniLog.TextLength;
+        txtMiniLog.SelectionColor = color.Value;
+        txtMiniLog.AppendText($"{DateTime.Now:HH:mm} {msg}{Environment.NewLine}");
+        txtMiniLog.SelectionColor = txtMiniLog.ForeColor;
+        txtMiniLog.ScrollToCaret();
         if (txtMiniLog.Lines.Length > 60) // only the latest lines: drop the oldest half
         {
             txtMiniLog.ReadOnly = false;

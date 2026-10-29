@@ -135,10 +135,7 @@ static class Checks
             main.Size = main.MinimumSize;
             main.PerformLayout();
             var connect = InForm(All(main).OfType<Button>().First(b => b.Text == "Connect securely"));
-            var boxes = new[] { "connectionPanel", "activityPanel" }.Select(n => InForm(main.Controls.Find(n, true)[0])).ToArray();
-            Check(boxes[0].Contains(connect) && !connect.IntersectsWith(boxes[1]), $"Connect button inside its panel at {scale:0.#}x text");
-            Check(main.MainMenuStrip!.Items.Cast<ToolStripMenuItem>().SelectMany(m => m.DropDownItems.OfType<ToolStripMenuItem>())
-                .Any(i => i.Text == "Show &activity log" && i.CheckOnClick), "Activity log visibility is user-selectable");
+            Check(InForm(main.Controls.Find("connectionPanel", true)[0]).Contains(connect), $"Connect button inside its panel at {scale:0.#}x text");
         }
         {
             // a b* c d* e  -Up->  b* a d* c e  -Up->  b* d* a c e  -Down x2->  a c b* d* e

@@ -740,14 +740,22 @@ class _HomePageState extends State<HomePage> {
 
   Widget _settingsPage(BuildContext context) {
     final busy = _ct != null;
+    // A white line above each section title separates the sections.
     Widget section(String title) => Padding(
       padding: const EdgeInsets.fromLTRB(4, 24, 4, 8),
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: Palette.accent,
-          fontWeight: FontWeight.w600,
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Divider(color: Colors.white, height: 1),
+          const SizedBox(height: 16),
+          Text(
+            title,
+            style: const TextStyle(
+              color: Palette.accent,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
     return Scaffold(
@@ -771,7 +779,13 @@ class _HomePageState extends State<HomePage> {
               for (final manualOnly in [false, true])
                 for (final (i, p) in Aether.presets.indexed)
                   if (p.manualOnly == manualOnly)
-                    DropdownMenuEntry(value: i, label: p.label),
+                    DropdownMenuEntry(
+                      value: i,
+                      label: p.label,
+                      leadingIcon: p.name.contains('Psiphon')
+                          ? Image.asset('assets/psiphon.png', width: 20)
+                          : const SizedBox(width: 20), // keeps names lined up
+                    ),
             ],
             onSelected: (v) {
               setState(() => _preset = v ?? -1);

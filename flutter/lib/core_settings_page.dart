@@ -89,7 +89,15 @@ class _CoreSettingsPageState extends State<CoreSettingsPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Core settings')),
+    appBar: AppBar(
+      title: const Text('Core settings'),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : _save,
+          child: const Text('Save'),
+        ),
+      ],
+    ),
     body: SafeArea(
       child: Center(
         child: ConstrainedBox(
@@ -155,10 +163,6 @@ class _CoreSettingsPageState extends State<CoreSettingsPage> {
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               const SizedBox(height: 16),
-              FilledButton(
-                onPressed: _saving ? null : _save,
-                child: const Text('Save'),
-              ),
               TextButton(
                 onPressed: _saving
                     ? null

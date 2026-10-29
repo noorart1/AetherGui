@@ -26,14 +26,12 @@ partial class Form1
     private ComboBox cboProtocol = null!;
     private Label lblScan = null!;
     private ComboBox cboScan = null!;
-    private RichTextBox txtLog = null!;
     private RichTextBox txtMiniLog = null!;
     private ToolStripMenuItem chkStartup = null!;
     private CheckBox chkSysProxy = null!;
+    private CheckBox chkShowLog = null!;
     private ToolStripMenuItem chkPsiphon = null!;
-    private ToolStripMenuItem chkShowActivity = null!;
     private ProgressBar prgConnecting = null!;
-    private Panel activityCard = null!;
     private TableLayoutPanel shell = null!;
 
     // Raised 3D push button; the primary one is bold, like a classic default button.
@@ -61,7 +59,6 @@ partial class Form1
     {
         Font = new Font("Microsoft Sans Serif", 8.25F);
         var bold = new Font("Microsoft Sans Serif", 8.25F, FontStyle.Bold);
-        var header = new Font("Microsoft Sans Serif", 8.25F, FontStyle.Bold);
 
         btnConnect = ClassicButton("Connect securely", primary: true);
         btnConnect.AutoSize = false;
@@ -94,18 +91,18 @@ partial class Form1
         };
 
         lblProtocol = new Label { Text = "Protocol", Font = bold, AutoSize = true, Margin = new Padding(0, 8, 0, 2) };
-        cboProtocol = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Top, DropDownWidth = 360, Margin = new Padding(0, 0, 0, 4), AccessibleName = "Connection protocol" };
+        cboProtocol = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Top, DropDownWidth = 360, Margin = new Padding(0, 0, 0, 4), AccessibleName = "Connection protocol", DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 17 };
+        cboProtocol.DrawItem += DrawProtocolItem;
         lblScan = new Label { Text = "Server search", Font = bold, AutoSize = true, Margin = new Padding(0, 6, 0, 2) };
         cboScan = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Top, DropDownWidth = 360, Margin = new Padding(0, 0, 0, 4), AccessibleName = "Server search mode" };
 
         chkSysProxy = new CheckBox { Text = "Set Windows system proxy", AutoSize = true, Margin = new Padding(0, 8, 0, 0) };
         chkStartup = new ToolStripMenuItem("&Connect on startup") { CheckOnClick = true };
         chkPsiphon = new ToolStripMenuItem("Open &Psiphon after connecting") { CheckOnClick = true };
-        chkShowActivity = new ToolStripMenuItem("Show &activity log") { CheckOnClick = true };
 
         var menu = new MenuStrip { RenderMode = ToolStripRenderMode.System, BackColor = Palette.Background, Dock = DockStyle.Top };
         menu.Items.AddRange([
-            new ToolStripMenuItem("&Options", null, chkStartup, chkPsiphon, chkShowActivity),
+            new ToolStripMenuItem("&Options", null, chkStartup, chkPsiphon),
             new ToolStripMenuItem("&Tools", null, btnCoreSettings, btnCoreInput, btnInfo),
             new ToolStripMenuItem("&Help", null, btnUpdates)]);
 
@@ -124,14 +121,15 @@ partial class Form1
         controlLayout.Controls.Add(lblScan, 0, 5);
         controlLayout.Controls.Add(cboScan, 0, 6);
         controlLayout.Controls.Add(chkSysProxy, 0, 7);
-        controlLayout.Controls.Add(new Label { Text = "Latest activity", Font = bold, AutoSize = true, Margin = new Padding(0, 8, 0, 2) }, 0, 8);
+        chkShowLog = new CheckBox { Text = "Show latest activity", AutoSize = true, Margin = new Padding(0, 4, 0, 2) };
+        controlLayout.Controls.Add(chkShowLog, 0, 8);
 
         // Small sunken log of the latest lines that fills the space left under the controls.
         txtMiniLog = new RichTextBox
         {
             Dock = DockStyle.Fill, ReadOnly = true, BorderStyle = BorderStyle.Fixed3D, BackColor = Palette.LogBackground,
             Font = new Font("Courier New", 8.25F), ScrollBars = RichTextBoxScrollBars.Vertical, MinimumSize = new Size(0, 40),
-            TabStop = false, AccessibleName = "Latest activity"
+            TabStop = false, AccessibleName = "Latest activity", Visible = false // hidden until Show latest activity is ticked
         };
 
         var controlScroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Margin = Padding.Empty }; // scrollbar only when needed
@@ -140,46 +138,16 @@ partial class Form1
         controlScroll.Controls.Add(controlLayout);
 
         var connectionCard = Card("connectionPanel");
-        connectionCard.Margin = new Padding(0, 0, 4, 0);
         connectionCard.Controls.Add(controlScroll);
 
-        txtLog = new RichTextBox
-        {
-            Dock = DockStyle.Fill, ReadOnly = true, BorderStyle = BorderStyle.Fixed3D, BackColor = Palette.LogBackground,
-            Font = new Font("Courier New", 8.25F), DetectUrls = true, AccessibleName = "Connection activity log"
-        };
-        // Sunken white log, as in classic Windows.
-        var logFrame = new Panel { Dock = DockStyle.Fill, Padding = Padding.Empty };
-        logFrame.Controls.Add(txtLog);
-
-        var clear = ClassicButton("&Clear");
-        clear.Anchor = AnchorStyles.Right;
-        clear.MinimumSize = new Size(75, 23);
-        clear.Margin = Padding.Empty;
-        clear.AccessibleDescription = "Clear the activity log";
-        clear.Click += (_, _) => { txtLog.Clear(); txtMiniLog.Clear(); };
-        var logHeader = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, RowCount = 1, Padding = new Padding(0, 0, 0, 6) };
-        logHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        logHeader.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        logHeader.Controls.Add(new Label { Text = "Activity", Font = header, AutoSize = true, Anchor = AnchorStyles.Left, Margin = Padding.Empty }, 0, 0);
-        logHeader.Controls.Add(clear, 1, 0);
-
-        activityCard = Card("activityPanel");
-        activityCard.Margin = new Padding(4, 0, 0, 0);
-        activityCard.Controls.Add(logFrame);
-        activityCard.Controls.Add(logHeader);
-
-        shell = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(8), ColumnCount = 2, RowCount = 1, BackColor = Palette.Background };
-        shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38)); // a share, not pixels: follows display scaling
-        shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62));
+        shell = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(8), ColumnCount = 1, RowCount = 1, BackColor = Palette.Background };
         shell.Controls.Add(connectionCard, 0, 0);
-        shell.Controls.Add(activityCard, 1, 0);
 
         Text = "Aether — Private network client";
         AutoScaleMode = AutoScaleMode.Dpi;
         BackColor = Palette.Background;
-        ClientSize = new Size(820, 322);
-        MinimumSize = new Size(640, 342);
+        ClientSize = new Size(344, 270);
+        MinimumSize = new Size(320, 290); // sized for the hidden log; ShowLog grows it
         StartPosition = FormStartPosition.CenterScreen;
         KeyPreview = true;
         // Docked controls lay out last-added first: the menu takes the top, then the shell fills the rest.

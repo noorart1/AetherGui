@@ -36,35 +36,39 @@ sealed class CoreSettingsForm : Form
         helpTab.Controls.Add(help);
         var orderTab = new TabPage("Auto order") { Padding = new Padding(12), BackColor = Palette.Background };
         orderTab.Controls.Add(OrderLayout());
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 8 };
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 55));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1 };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        void Add(Control control, float percent = 0)
+        {
+            layout.RowStyles.Add(percent > 0 ? new RowStyle(SizeType.Percent, percent) : new RowStyle(SizeType.AutoSize));
+            layout.Controls.Add(control, 0, layout.RowCount++);
+        }
+        // A white line between sections.
+        void Separator() => Add(new Panel { Height = 1, Dock = DockStyle.Fill, BackColor = Color.White, Margin = new Padding(0, 6, 0, 6) });
         var warning = new Label { AutoSize = true, Dock = DockStyle.Fill, Text =
             "Expert options apply to every protocol. Use a manual protocol for protocol-specific flags. " +
             "Protocols are app-managed; set the port below, not as arguments. Settings are stored in LocalAppData, NOT encrypted. " +
             "Direct routes bypass the tunnel; Gateway/debug logs can expose browsing or secrets. " +
             "SO_MARK is not a Windows feature. File options require existing accessible files." };
-        layout.Controls.Add(warning, 0, 0);
-        layout.Controls.Add(new Label { Text = "Arguments (JSON array): [\"--scan\", \"balanced\", \"--stats\"]", AutoSize = true }, 0, 1);
+        Add(warning);
+        Separator();
+        Add(new Label { Text = "Arguments (JSON array): [\"--scan\", \"balanced\", \"--stats\"]", AutoSize = true });
         _arguments.Text = options.ArgumentsJson;
-        layout.Controls.Add(_arguments, 0, 2);
-        layout.Controls.Add(new Label { Text = "Environment (JSON object): {\"AETHER_ROUTE_SNIFF_MS\":\"600\"}", AutoSize = true }, 0, 3);
+        Add(_arguments, 55);
+        Separator();
+        Add(new Label { Text = "Environment (JSON object): {\"AETHER_ROUTE_SNIFF_MS\":\"600\"}", AutoSize = true });
         _environment.Text = options.EnvironmentJson;
-        layout.Controls.Add(_environment, 0, 4);
+        Add(_environment, 45);
+        Separator();
         var timeRow = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
         timeRow.Controls.Add(new Label { Text = "Advanced startup timeout (seconds)", AutoSize = true });
         _timeout.Value = options.StartupSeconds; timeRow.Controls.Add(_timeout);
-        layout.Controls.Add(timeRow, 0, 5);
+        Add(timeRow);
         var portRow = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
         portRow.Controls.AddRange([new Label { Text = "Proxy port (HTTP + SOCKS5)", AutoSize = true }, _port]);
-        layout.Controls.Add(portRow, 0, 6);
-        var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
+        Add(portRow);
+        // Under the tabs, so the one Save also saves the Auto order tab.
+        var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Bottom, Padding = new Padding(6) };
         var save = new Button { Text = "Save", AutoSize = true, MinimumSize = new Size(75, 23), Font = new Font("Microsoft Sans Serif", 8.25F, FontStyle.Bold) }; // bold like a classic default button
         var reset = new Button { Text = "Reset fields", AutoSize = true };
         var cancel = new Button { Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel };
@@ -75,8 +79,7 @@ sealed class CoreSettingsForm : Form
             _port.Value = Aether.DefaultProxyPort; FillOrder(null);
         };
         buttons.Controls.AddRange([save, reset, cancel]);
-        layout.Controls.Add(buttons, 0, 7);
-        settings.Controls.Add(layout); tabs.TabPages.AddRange([settings, orderTab, helpTab]); Controls.Add(tabs);
+        settings.Controls.Add(layout); tabs.TabPages.AddRange([settings, orderTab, helpTab]); Controls.AddRange([tabs, buttons]);
         CancelButton = cancel;
         Shown += async (_, _) =>
         {

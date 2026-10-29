@@ -15,6 +15,7 @@
     <Compile Include="..\SystemProxy.cs" Link="SystemProxy.cs" />
     <Compile Include="..\MixedProxy.cs" Link="MixedProxy.cs" />
     <Compile Include="..\Psiphon.cs" Link="Psiphon.cs" />
+    <EmbeddedResource Include="..\flutter\assets\psiphon.png" LogicalName="psiphon.png" />
     <None Include="..\aether.exe" Link="aether.exe" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
