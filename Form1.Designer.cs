@@ -1,9 +1,9 @@
 namespace AetherGui;
 
-// Windows 98 look: MS Sans Serif, 3D gray surfaces, navy accents, white sunken log, status bar.
+// Normal Windows look: system colors, themed controls, Segoe UI, white log, status bar.
 static class Palette
 {
-    public static readonly Color Background = ColorTranslator.FromHtml("#C0C0C0");
+    public static readonly Color Background = SystemColors.Control; // the normal Windows window color
     public static readonly Color LogBackground = Color.White;
     public static readonly Color MutedText = ColorTranslator.FromHtml("#404040");
     public static readonly Color Accent = ColorTranslator.FromHtml("#000080");
@@ -34,15 +34,15 @@ partial class Form1
     private ProgressBar prgConnecting = null!;
     private TableLayoutPanel shell = null!;
 
-    // Raised 3D push button; the primary one is bold, like a classic default button.
+    // Normal themed Windows button; the primary one is bold.
     private static Button ClassicButton(string text, bool primary = false)
     {
         var button = new Button
         {
-            Text = text, FlatStyle = FlatStyle.Standard, UseVisualStyleBackColor = false, BackColor = Palette.Background,
+            Text = text,
             AutoSize = true, MinimumSize = new Size(90, 23), Margin = new Padding(0, 0, 6, 6)
         };
-        if (primary) button.Font = new Font("Microsoft Sans Serif", 8.25F, FontStyle.Bold);
+        if (primary) button.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
         return button;
     }
 
@@ -57,8 +57,8 @@ partial class Form1
 
     private void InitializeComponent()
     {
-        Font = new Font("Microsoft Sans Serif", 8.25F);
-        var bold = new Font("Microsoft Sans Serif", 8.25F, FontStyle.Bold);
+        Font = new Font("Segoe UI", 9F);
+        var bold = new Font("Segoe UI", 9F, FontStyle.Bold);
 
         btnConnect = ClassicButton("Connect securely", primary: true);
         btnConnect.AutoSize = false;
@@ -77,10 +77,10 @@ partial class Form1
         btnUpdates = new ToolStripMenuItem("Check for &updates...") { AccessibleDescription = "Check for a new AetherGui release and a newer core" };
         btnUpdates.Click += async (_, _) => await CheckUpdatesAsync(interactive: true);
 
-        lblStatus = new Label { Text = "●  Disconnected", ForeColor = Palette.Disconnected, AutoSize = true, Font = new Font("Microsoft Sans Serif", 10F, FontStyle.Bold), Margin = new Padding(0, 0, 0, 0), AccessibleName = "Connection status: Disconnected" };
-        // Windows 98 style status bar along the bottom, with a sunken pane and a sizing grip.
+        lblStatus = new Label { Text = "●  Disconnected", ForeColor = Palette.Disconnected, AutoSize = true, Font = new Font("Segoe UI", 10F, FontStyle.Bold), Margin = new Padding(0, 0, 0, 0), AccessibleName = "Connection status: Disconnected" };
+        // Status bar along the bottom, with a sunken pane; no sizing grip since the size is locked.
         lblDelay = new ToolStripStatusLabel("Delay: -") { Spring = true, TextAlign = ContentAlignment.MiddleLeft, BorderSides = ToolStripStatusLabelBorderSides.All, BorderStyle = Border3DStyle.SunkenOuter };
-        var statusBar = new StatusStrip { RenderMode = ToolStripRenderMode.System, BackColor = Palette.Background };
+        var statusBar = new StatusStrip { RenderMode = ToolStripRenderMode.System, BackColor = Palette.Background, SizingGrip = false };
         statusBar.Items.Add(lblDelay);
         // Tall enough to show the classic chunky blocks.
         prgConnecting = new ProgressBar
@@ -146,7 +146,9 @@ partial class Form1
         Text = "Aether — Private network client";
         AutoScaleMode = AutoScaleMode.Dpi;
         BackColor = Palette.Background;
-        ClientSize = new Size(344, 270);
+        Size = new Size(333, 365);
+        FormBorderStyle = FormBorderStyle.FixedSingle; // size is locked; only Show latest activity changes the height
+        MaximizeBox = false;
         MinimumSize = new Size(320, 290); // sized for the hidden log; ShowLog grows it
         StartPosition = FormStartPosition.CenterScreen;
         KeyPreview = true;

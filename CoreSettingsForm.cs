@@ -22,8 +22,8 @@ sealed class CoreSettingsForm : Form
         Options = options;
         _connectMs = connectMs ?? new Dictionary<int, int>();
         Text = "Core settings";
-        // Same Windows 98 look as the main window: MS Sans Serif on classic gray.
-        Font = new Font("Microsoft Sans Serif", 8.25F);
+        // Same normal Windows look as the main window.
+        Font = new Font("Segoe UI", 9F);
         BackColor = Palette.Background;
         AutoScaleMode = AutoScaleMode.Dpi;
         ClientSize = new Size(800, 650);
@@ -69,7 +69,7 @@ sealed class CoreSettingsForm : Form
         Add(portRow);
         // Under the tabs, so the one Save also saves the Auto order tab.
         var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Bottom, Padding = new Padding(6) };
-        var save = new Button { Text = "Save", AutoSize = true, MinimumSize = new Size(75, 23), Font = new Font("Microsoft Sans Serif", 8.25F, FontStyle.Bold) }; // bold like a classic default button
+        var save = new Button { Text = "Save", AutoSize = true, MinimumSize = new Size(75, 23), Font = new Font("Segoe UI", 9F, FontStyle.Bold) }; // bold like the main window's primary button
         var reset = new Button { Text = "Reset fields", AutoSize = true };
         var cancel = new Button { Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel };
         save.Click += (_, _) => SaveOptions();

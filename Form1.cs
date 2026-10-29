@@ -27,7 +27,7 @@ public partial class Form1 : Form
             chkStartup.Checked = key?.GetValue("AutoConnect") is 1;
             chkSysProxy.Checked = key?.GetValue("SetSystemProxy") is 1;
             chkPsiphon.Checked = key?.GetValue("RunPsiphon") is not 0; // on unless turned off, as before this option
-            chkShowLog.Checked = key?.GetValue("ShowActivity") is 1;
+            chkShowLog.Checked = key?.GetValue("ShowActivity") is not 0; // on unless turned off
             var saved = key?.GetValue("Protocol") is int i && i >= 0 && i <= Aether.Presets.Length ? i : 0;
             cboProtocol.SelectedIndex = Array.IndexOf(_protocolIndexes, saved - 1);
             cboScan.SelectedIndex = key?.GetValue("Scan") is 1 ? 1 : 0;
@@ -88,7 +88,7 @@ public partial class Form1 : Form
     private void ShowLog(bool show)
     {
         int Px(int v) => IsHandleCreated ? LogicalToDeviceUnits(v) : v; // before the handle, Dpi autoscale scales these later
-        var change = show ? Px(120) : -txtMiniLog.Height;
+        var change = show ? Px(157) : -Px(157); // 365 <-> 522; the log also fills spare room, so never shrink by its height
         txtMiniLog.Visible = show;
         MinimumSize = new Size(MinimumSize.Width, MinimumSize.Height + (show ? Px(50) : -Px(50)));
         Height += change;

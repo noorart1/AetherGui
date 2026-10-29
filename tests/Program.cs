@@ -119,7 +119,6 @@ static class Checks
         catch (FormatException) { classicRejected = true; }
         Check(classicRejected, "Classic gool cannot override selected protocol");
         ApplicationConfiguration.Initialize();
-        Application.VisualStyleState = System.Windows.Forms.VisualStyles.VisualStyleState.NoneEnabled;
         // Larger text stands in for 125-200% display scaling: the left panel must grow with it, never slide under the log.
         static IEnumerable<Control> All(Control c) => c.Controls.Cast<Control>().SelectMany(x => All(x).Prepend(x));
         static Rectangle InForm(Control c) // bounds in form client coordinates, without needing a shown window
@@ -136,6 +135,17 @@ static class Checks
             main.PerformLayout();
             var connect = InForm(All(main).OfType<Button>().First(b => b.Text == "Connect securely"));
             Check(InForm(main.Controls.Find("connectionPanel", true)[0]).Contains(connect), $"Connect button inside its panel at {scale:0.#}x text");
+        }
+        {
+            // After showing then hiding the log, every control fits while connecting, with no scrolling.
+            using var main = new Form1();
+            var toggle = All(main).OfType<CheckBox>().First(c => c.Text == "Show latest activity");
+            toggle.Checked = true; main.PerformLayout();
+            toggle.Checked = false;
+            All(main).OfType<ProgressBar>().First().Visible = true;
+            main.PerformLayout();
+            var showLog = InForm(All(main).OfType<CheckBox>().First(c => c.Text == "Show latest activity"));
+            Check(showLog.Bottom <= InForm(main.Controls.Find("connectionPanel", true)[0]).Bottom - 8, $"All controls fit while connecting ({showLog.Bottom} vs panel {InForm(main.Controls.Find("connectionPanel", true)[0]).Bottom})");
         }
         {
             // a b* c d* e  -Up->  b* a d* c e  -Up->  b* d* a c e  -Down x2->  a c b* d* e
