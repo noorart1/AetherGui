@@ -35,6 +35,7 @@ partial class Form1
     private RichTextBox txtLog = null!;
     private CheckBox chkStartup = null!;
     private CheckBox chkSysProxy = null!;
+    private CheckBox chkPsiphon = null!;
     private ProgressBar prgConnecting = null!;
 
     // Flat button with a thin border; the primary one is filled blue with white text.
@@ -108,6 +109,7 @@ partial class Form1
 
         chkStartup = new CheckBox { Text = "Connect on startup", AutoSize = true, Margin = new Padding(0, 14, 0, 0) };
         chkSysProxy = new CheckBox { Text = "Set Windows system proxy", AutoSize = true, Margin = new Padding(0, 6, 0, 0) };
+        chkPsiphon = new CheckBox { Text = "Open Psiphon after connecting", AutoSize = true, Margin = new Padding(0, 6, 0, 0) };
 
         var status = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top, WrapContents = true, Margin = Padding.Empty };
         status.Controls.AddRange([lblStatus, lblDelay]);
@@ -117,9 +119,9 @@ partial class Form1
             ForeColor = Palette.MutedText, Anchor = AnchorStyles.Left | AnchorStyles.Right, AutoSize = true, Margin = Padding.Empty
         };
 
-        var controlLayout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, RowCount = 10, Margin = Padding.Empty };
+        var controlLayout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, RowCount = 11, Margin = Padding.Empty };
         controlLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); // fit the panel, never the content
-        for (var i = 0; i < 10; i++) controlLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        for (var i = 0; i < 11; i++) controlLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         // Connect sits right under the status so it stays in view; the rest scrolls if large text needs more room.
         controlLayout.Controls.Add(status, 0, 0);
         controlLayout.Controls.Add(prgConnecting, 0, 1);
@@ -131,6 +133,7 @@ partial class Form1
         controlLayout.Controls.Add(cboScan, 0, 7);
         controlLayout.Controls.Add(chkStartup, 0, 8);
         controlLayout.Controls.Add(chkSysProxy, 0, 9);
+        controlLayout.Controls.Add(chkPsiphon, 0, 10);
 
         // Secondary actions as an even 2x2 grid that always fits the panel width.
         var actions = new TableLayoutPanel { AutoSize = true, Dock = DockStyle.Top, ColumnCount = 2, RowCount = 2, Margin = new Padding(0, 12, 0, 0) };

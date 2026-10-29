@@ -25,6 +25,7 @@ public partial class Form1 : Form
         {
             chkStartup.Checked = key?.GetValue("AutoConnect") is 1;
             chkSysProxy.Checked = key?.GetValue("SetSystemProxy") is 1;
+            chkPsiphon.Checked = key?.GetValue("RunPsiphon") is not 0; // on unless turned off, as before this option
             var saved = key?.GetValue("Protocol") is int i && i >= 0 && i <= Aether.Presets.Length ? i : 0;
             cboProtocol.SelectedIndex = Array.IndexOf(_protocolIndexes, saved - 1);
             cboScan.SelectedIndex = key?.GetValue("Scan") is 1 ? 1 : 0;
@@ -40,6 +41,14 @@ public partial class Form1 : Form
             SaveSetting("SetSystemProxy", chkSysProxy.Checked);
             if (!chkSysProxy.Checked) SystemProxy.Disable();
             else if (_process is { HasExited: false } && lblStatus.Text.Contains("Connected:")) SystemProxy.Enable();
+        };
+        chkPsiphon.CheckedChanged += (_, _) =>
+        {
+            SaveSetting("RunPsiphon", chkPsiphon.Checked);
+            if (chkPsiphon.Checked) return;
+            Psiphon.Kill();
+            SystemProxy.Disable(); // the proxy Psiphon set is dead now
+            if (chkSysProxy.Checked && _process is { HasExited: false } && lblStatus.Text.Contains("Connected:")) SystemProxy.Enable();
         };
         Shown += async (_, _) =>
         {
@@ -136,7 +145,7 @@ public partial class Form1 : Form
         SetStatus($"Connected: {p.Name}", Palette.Connected);
         Log($"Connected via {p.Name} in {took.Elapsed.TotalSeconds:0.0}s, delay {ms} ms.");
         // The core's own psiphon modes already run Psiphon; a second one on top only slows it down.
-        if (!p.Args.Contains("psiphon")) _ = StartPsiphonAsync(ct); // a download must not hold up the connection monitor below
+        if (chkPsiphon.Checked && !p.Args.Contains("psiphon")) _ = StartPsiphonAsync(ct); // a download must not hold up the connection monitor below
         for (int fails = 0; fails < 2;)
         {
             lblDelay.Text = ms is null ? "Delay: timeout" : $"Delay: {ms} ms";
