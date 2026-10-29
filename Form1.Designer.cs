@@ -27,6 +27,7 @@ partial class Form1
     private Label lblScan = null!;
     private ComboBox cboScan = null!;
     private RichTextBox txtLog = null!;
+    private RichTextBox txtMiniLog = null!;
     private ToolStripMenuItem chkStartup = null!;
     private CheckBox chkSysProxy = null!;
     private ToolStripMenuItem chkPsiphon = null!;
@@ -111,9 +112,9 @@ partial class Form1
         var status = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top, WrapContents = true, Margin = Padding.Empty };
         status.Controls.Add(lblStatus);
 
-        var controlLayout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, RowCount = 8, Margin = Padding.Empty };
+        var controlLayout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, RowCount = 9, Margin = Padding.Empty };
         controlLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); // fit the panel, never the content
-        for (var i = 0; i < 8; i++) controlLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        for (var i = 0; i < 9; i++) controlLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         // Connect sits right under the status so it stays in view; the rest scrolls if large text needs more room.
         controlLayout.Controls.Add(status, 0, 0);
         controlLayout.Controls.Add(prgConnecting, 0, 1);
@@ -123,8 +124,19 @@ partial class Form1
         controlLayout.Controls.Add(lblScan, 0, 5);
         controlLayout.Controls.Add(cboScan, 0, 6);
         controlLayout.Controls.Add(chkSysProxy, 0, 7);
+        controlLayout.Controls.Add(new Label { Text = "Latest activity", Font = bold, AutoSize = true, Margin = new Padding(0, 8, 0, 2) }, 0, 8);
+
+        // Small sunken log of the latest lines that fills the space left under the controls.
+        txtMiniLog = new RichTextBox
+        {
+            Dock = DockStyle.Fill, ReadOnly = true, BorderStyle = BorderStyle.Fixed3D, BackColor = Palette.LogBackground,
+            Font = new Font("Courier New", 8.25F), ScrollBars = RichTextBoxScrollBars.Vertical, MinimumSize = new Size(0, 40),
+            TabStop = false, AccessibleName = "Latest activity"
+        };
 
         var controlScroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Margin = Padding.Empty }; // scrollbar only when needed
+        // Docked controls lay out last-added first: the controls take the top, the mini log fills the rest.
+        controlScroll.Controls.Add(txtMiniLog);
         controlScroll.Controls.Add(controlLayout);
 
         var connectionCard = Card("connectionPanel");
@@ -145,7 +157,7 @@ partial class Form1
         clear.MinimumSize = new Size(75, 23);
         clear.Margin = Padding.Empty;
         clear.AccessibleDescription = "Clear the activity log";
-        clear.Click += (_, _) => txtLog.Clear();
+        clear.Click += (_, _) => { txtLog.Clear(); txtMiniLog.Clear(); };
         var logHeader = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, RowCount = 1, Padding = new Padding(0, 0, 0, 6) };
         logHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         logHeader.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));

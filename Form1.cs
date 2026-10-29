@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
 namespace AetherGui;
@@ -268,7 +269,8 @@ public partial class Form1 : Form
         using var dialog = new Form
         {
             Text = "Core input", ClientSize = new Size(440, 140), MinimumSize = new Size(360, 180),
-            StartPosition = FormStartPosition.CenterParent, AutoScaleMode = AutoScaleMode.Dpi
+            StartPosition = FormStartPosition.CenterParent, AutoScaleMode = AutoScaleMode.Dpi,
+            Font = Font, BackColor = Palette.Background
         };
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), RowCount = 3, ColumnCount = 1 };
         layout.Controls.Add(new Label { Text = "Code or prompt response (not logged)", AutoSize = true });
@@ -322,10 +324,30 @@ public partial class Form1 : Form
             try { BeginInvoke(() => Log(msg, color)); } catch (InvalidOperationException) { }
             return;
         }
-        txtLog.SelectionStart = txtLog.TextLength;
-        txtLog.SelectionColor = color ?? txtLog.ForeColor;
-        txtLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {msg}{Environment.NewLine}");
-        txtLog.SelectionColor = txtLog.ForeColor;
-        txtLog.ScrollToCaret();
+        color ??= LogColor(msg);
+        foreach (var box in new[] { txtLog, txtMiniLog })
+        {
+            box.SelectionStart = box.TextLength;
+            box.SelectionColor = color.Value;
+            box.AppendText($"{(box == txtLog ? $"[{DateTime.Now:HH:mm:ss}]" : $"{DateTime.Now:HH:mm}")} {msg}{Environment.NewLine}");
+            box.SelectionColor = box.ForeColor;
+            box.ScrollToCaret();
+        }
+        if (txtMiniLog.Lines.Length > 60) // only the latest lines: drop the oldest half
+        {
+            txtMiniLog.ReadOnly = false;
+            txtMiniLog.Select(0, txtMiniLog.GetFirstCharIndexFromLine(30));
+            txtMiniLog.SelectedText = "";
+            txtMiniLog.ReadOnly = true;
+            txtMiniLog.SelectionStart = txtMiniLog.TextLength;
+            txtMiniLog.ScrollToCaret();
+        }
     }
+
+    // Lines without their own color get one from what they say, in the classic palette.
+    internal static Color LogColor(string msg) =>
+        Regex.IsMatch(msg, @"\b(error|fail(ed|ure)?|could not|cannot|timeout|timed out|denied|refused)\b", RegexOptions.IgnoreCase) ? Palette.Disconnected
+        : Regex.IsMatch(msg, @"\b(warn(ing)?|retry(ing)?|switching|reconnect(ing)?|slow)\b", RegexOptions.IgnoreCase) ? Palette.Connecting
+        : Regex.IsMatch(msg, @"\b(connected|ready|success(ful)?|ok|started|listening)\b", RegexOptions.IgnoreCase) ? Palette.Connected
+        : Color.Black;
 }

@@ -14,7 +14,7 @@ sealed class CoreSettingsForm : Form
     private static TextBox Editor() => new()
     {
         Multiline = true, AcceptsReturn = true, ScrollBars = ScrollBars.Both,
-        WordWrap = false, Dock = DockStyle.Fill, Font = new Font("Consolas", 10)
+        WordWrap = false, Dock = DockStyle.Fill, Font = new Font("Courier New", 9F)
     };
 
     public CoreSettingsForm(CoreOptions options, IReadOnlyDictionary<int, int>? connectMs = null)
@@ -22,16 +22,19 @@ sealed class CoreSettingsForm : Form
         Options = options;
         _connectMs = connectMs ?? new Dictionary<int, int>();
         Text = "Core settings";
+        // Same Windows 98 look as the main window: MS Sans Serif on classic gray.
+        Font = new Font("Microsoft Sans Serif", 8.25F);
+        BackColor = Palette.Background;
         AutoScaleMode = AutoScaleMode.Dpi;
         ClientSize = new Size(800, 650);
         MinimumSize = new Size(520, 460);
         StartPosition = FormStartPosition.CenterParent;
         var tabs = new TabControl { Dock = DockStyle.Fill };
-        var settings = new TabPage("Settings") { Padding = new Padding(12) };
-        var helpTab = new TabPage("Bundled core help");
+        var settings = new TabPage("Settings") { Padding = new Padding(12), BackColor = Palette.Background };
+        var helpTab = new TabPage("Bundled core help") { BackColor = Palette.Background };
         var help = Editor(); help.ReadOnly = true; help.Text = "Loading...";
         helpTab.Controls.Add(help);
-        var orderTab = new TabPage("Auto order") { Padding = new Padding(12) };
+        var orderTab = new TabPage("Auto order") { Padding = new Padding(12), BackColor = Palette.Background };
         orderTab.Controls.Add(OrderLayout());
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 8 };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -62,7 +65,7 @@ sealed class CoreSettingsForm : Form
         portRow.Controls.AddRange([new Label { Text = "Proxy port (HTTP + SOCKS5)", AutoSize = true }, _port]);
         layout.Controls.Add(portRow, 0, 6);
         var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
-        var save = new Button { Text = "Save", AutoSize = true };
+        var save = new Button { Text = "Save", AutoSize = true, MinimumSize = new Size(75, 23), Font = new Font("Microsoft Sans Serif", 8.25F, FontStyle.Bold) }; // bold like a classic default button
         var reset = new Button { Text = "Reset fields", AutoSize = true };
         var cancel = new Button { Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel };
         save.Click += (_, _) => SaveOptions();

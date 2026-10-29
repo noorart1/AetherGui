@@ -152,6 +152,10 @@ static class Checks
             CoreSettingsForm.MoveChecked(list, 1); CoreSettingsForm.MoveChecked(list, 1);
             Check(Show() == "acb*d*e", "Down moves every checked protocol");
         }
+        Check(Form1.LogColor("Could not start the core") == Palette.Disconnected, "Errors are red in the log");
+        Check(Form1.LogColor("Switching to WireGuard") == Palette.Connecting, "Route switches are amber in the log");
+        Check(Form1.LogColor("Connected: MASQUE") == Palette.Connected, "Connections are green in the log");
+        Check(Form1.LogColor("Disconnected") == Color.Black, "Disconnected is not mistaken for connected");
         using var settings = new CoreSettingsForm(new());
         foreach (var size in new[] { new Size(520, 460), new Size(800, 650), new Size(1200, 800) })
         {
